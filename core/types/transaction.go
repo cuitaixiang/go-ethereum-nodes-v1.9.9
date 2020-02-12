@@ -31,10 +31,12 @@ import (
 
 //go:generate gencodec -type txdata -field-override txdataMarshaling -out gen_tx_json.go
 
+//非法签名错误
 var (
 	ErrInvalidSig = errors.New("invalid transaction v, r, s values")
 )
 
+//Transaction 带缓存提取字段的交易类型，导出使用
 type Transaction struct {
 	data txdata
 	// caches
@@ -71,10 +73,12 @@ type txdataMarshaling struct {
 	S            *hexutil.Big
 }
 
+//NewTransaction 构造交易
 func NewTransaction(nonce uint64, to common.Address, amount *big.Int, gasLimit uint64, gasPrice *big.Int, data []byte) *Transaction {
 	return newTransaction(nonce, &to, amount, gasLimit, gasPrice, data)
 }
 
+//NewContractCreation 构造合约交易
 func NewContractCreation(nonce uint64, amount *big.Int, gasLimit uint64, gasPrice *big.Int, data []byte) *Transaction {
 	return newTransaction(nonce, nil, amount, gasLimit, gasPrice, data)
 }
@@ -365,6 +369,7 @@ func (t *TransactionsByPriceAndNonce) Peek() *Transaction {
 }
 
 // Shift replaces the current best head with the next one from the same account.
+// 同一个账户的后续交易加入堆，继续参与价格比较
 func (t *TransactionsByPriceAndNonce) Shift() {
 	acc, _ := Sender(t.signer, t.heads[0])
 	if txs, ok := t.txs[acc]; ok && len(txs) > 0 {
