@@ -24,11 +24,13 @@ import (
 	"github.com/ethereum/go-ethereum/trie"
 )
 
+//DerivableList 可导出列表接口
 type DerivableList interface {
 	Len() int
 	GetRlp(i int) []byte
 }
 
+//DeriveSha 以key-index value-rlp生成mpt，并求root hash
 func DeriveSha(list DerivableList) common.Hash {
 	keybuf := new(bytes.Buffer)
 	trie := new(trie.Trie)
