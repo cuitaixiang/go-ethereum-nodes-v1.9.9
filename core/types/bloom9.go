@@ -91,6 +91,7 @@ func (b *Bloom) UnmarshalText(input []byte) error {
 	return hexutil.UnmarshalFixedText("Bloom", input, b[:])
 }
 
+// CreateBloom 使用所有收据中的日志创建bloom
 func CreateBloom(receipts Receipts) Bloom {
 	bin := new(big.Int)
 	for _, receipt := range receipts {
@@ -112,6 +113,7 @@ func LogsBloom(logs []*Log) *big.Int {
 	return bin
 }
 
+// bloom9 使用hash256，然后取前6个字节合成3个数，放入bloom
 func bloom9(b []byte) *big.Int {
 	b = crypto.Keccak256(b)
 
