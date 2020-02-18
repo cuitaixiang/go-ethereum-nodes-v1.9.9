@@ -124,6 +124,7 @@ func NewDatabaseWithFreezer(db ethdb.KeyValueStore, freezer string, namespace st
 	//   - If neither the key-value store nor the freezer is empty, cross validate
 	//     the genesis hashes to make sure they are compatible. If they are, also
 	//     ensure that there's no gap between the freezer and sunsequently leveldb.
+	//	如果key-value store和ancient store都不为空，则需要交叉验证创世哈希确保兼容性和连续性
 	//   - If the key-value store is not empty, but the freezer is we might just be
 	//     upgrading to the freezer release, or we might have had a small chain and
 	//     not frozen anything yet. Ensure that no blocks are missing yet from the
@@ -142,6 +143,7 @@ func NewDatabaseWithFreezer(db ethdb.KeyValueStore, freezer string, namespace st
 			}
 			// Key-value store and freezer belong to the same network. Ensure that they
 			// are contiguous, otherwise we might end up with a non-functional freezer.
+			// 确保连续性
 			if kvhash, _ := db.Get(headerHashKey(frozen)); len(kvhash) == 0 {
 				// Subsequent header after the freezer limit is missing from the database.
 				// Reject startup is the database has a more recent head.
