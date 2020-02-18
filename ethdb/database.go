@@ -19,6 +19,11 @@ package ethdb
 
 import "io"
 
+// Freezer（冷藏室）
+// 数据库现在分为两部分：
+// 1. 最近的区块和状态保存在 LevelDB 的快速键值存储中(key-value store)。适合 SSD。
+// 2. 3 个轮次（epoch）以前的区块和收据被移动到定制的冷藏室数据库中(ancient store)，不会被频繁访问。适合 HDD。
+
 // KeyValueReader wraps the Has and Get method of a backing data store.
 type KeyValueReader interface {
 	// Has retrieves if a key is present in the key-value data store.
@@ -40,6 +45,7 @@ type KeyValueWriter interface {
 // Stater wraps the Stat method of a backing data store.
 type Stater interface {
 	// Stat returns a particular internal stat of the database.
+	// 返回数据库内部统计数据
 	Stat(property string) (string, error)
 }
 
