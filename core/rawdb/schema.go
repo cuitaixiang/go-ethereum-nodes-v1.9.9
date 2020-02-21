@@ -25,6 +25,7 @@ import (
 )
 
 // The fields below define the low level database schema prefixing.
+// 定义了key值得前缀
 var (
 	// databaseVerisionKey tracks the current database version.
 	databaseVerisionKey = []byte("DatabaseVersion")
