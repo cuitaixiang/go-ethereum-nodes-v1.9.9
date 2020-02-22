@@ -28,6 +28,7 @@ type table struct {
 }
 
 // NewTable returns a database object that prefixes all keys with a given string.
+// 表以前缀区分
 func NewTable(db ethdb.Database, prefix string) ethdb.Database {
 	return &table{
 		db:     db,

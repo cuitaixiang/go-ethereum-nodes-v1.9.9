@@ -33,6 +33,7 @@ import (
 // of frozen ancient blocks. The method iterates over all the frozen blocks and
 // injects into the database the block hash->number mappings and the transaction
 // lookup entries.
+// 从数据冷藏室恢复数据
 func InitDatabaseFromFreezer(db ethdb.Database) error {
 	// If we can't access the freezer or it's empty, abort
 	frozen, err := db.Ancients()

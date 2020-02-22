@@ -77,6 +77,7 @@ type freezer struct {
 
 // newFreezer creates a chain freezer that moves ancient chain data into
 // append-only flat file containers.
+// 数据冷藏室使用文件存储
 func newFreezer(datadir string, namespace string) (*freezer, error) {
 	// Create the initial freezer object
 	var (

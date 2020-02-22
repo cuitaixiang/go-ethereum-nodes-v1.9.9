@@ -30,6 +30,8 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
+//链相关数据读取函数
+
 // ReadCanonicalHash retrieves the hash assigned to a canonical block number.
 func ReadCanonicalHash(db ethdb.Reader, number uint64) common.Hash {
 	data, _ := db.Ancient(freezerHashTable, number)

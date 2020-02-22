@@ -93,6 +93,7 @@ type AncientReader interface {
 type AncientWriter interface {
 	// AppendAncient injects all binary blobs belong to block at the end of the
 	// append-only immutable table files.
+	// 数据冷藏hash, header, body, receipt, td整体冷藏
 	AppendAncient(number uint64, hash, header, body, receipt, td []byte) error
 
 	// TruncateAncients discards all but the first n ancient data from the ancient store.

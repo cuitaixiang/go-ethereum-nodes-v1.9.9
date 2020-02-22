@@ -157,9 +157,11 @@ func newCustomTable(path string, name string, readMeter metrics.Meter, writeMete
 	var idxName string
 	if noCompression {
 		// Raw idx
+		// index原始索引文件
 		idxName = fmt.Sprintf("%s.ridx", name)
 	} else {
 		// Compressed idx
+		// index压缩索引文件
 		idxName = fmt.Sprintf("%s.cidx", name)
 	}
 	offsets, err := openFreezerFileForAppend(filepath.Join(path, idxName))
@@ -413,8 +415,10 @@ func (t *freezerTable) openFile(num uint32, opener func(string) (*os.File, error
 	if f, exist = t.files[num]; !exist {
 		var name string
 		if t.noCompression {
+			//原始数据文件
 			name = fmt.Sprintf("%s.%04d.rdat", t.name, num)
 		} else {
+			//压缩数据文件
 			name = fmt.Sprintf("%s.%04d.cdat", t.name, num)
 		}
 		f, err = opener(filepath.Join(t.path, name))

@@ -64,6 +64,7 @@ var (
 	preimageHitCounter = metrics.NewRegisteredCounter("db/preimage/hits", nil)
 )
 
+// 数据冷藏室分类表
 const (
 	// freezerHeaderTable indicates the name of the freezer header table.
 	freezerHeaderTable = "headers"
@@ -92,7 +93,7 @@ var freezerNoSnappy = map[string]bool{
 }
 
 // LegacyTxLookupEntry is the legacy TxLookupEntry definition with some unnecessary
-// fields.
+// fields. 遗留的交易查找项
 type LegacyTxLookupEntry struct {
 	BlockHash  common.Hash
 	BlockIndex uint64
@@ -105,6 +106,8 @@ func encodeBlockNumber(number uint64) []byte {
 	binary.BigEndian.PutUint64(enc, number)
 	return enc
 }
+
+// 组合各项查找的key
 
 // headerKeyPrefix = headerPrefix + num (uint64 big endian)
 func headerKeyPrefix(number uint64) []byte {
