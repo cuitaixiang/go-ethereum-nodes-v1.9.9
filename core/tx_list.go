@@ -29,10 +29,11 @@ import (
 
 // nonceHeap is a heap.Interface implementation over 64bit unsigned integers for
 // retrieving sorted transactions from the possibly gapped future queue.
+// nonce堆接口实现
 type nonceHeap []uint64
 
 func (h nonceHeap) Len() int           { return len(h) }
-func (h nonceHeap) Less(i, j int) bool { return h[i] < h[j] }
+func (h nonceHeap) Less(i, j int) bool { return h[i] < h[j] } //定义了升序排列，因此小顶堆
 func (h nonceHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
 
 func (h *nonceHeap) Push(x interface{}) {
@@ -49,10 +50,11 @@ func (h *nonceHeap) Pop() interface{} {
 
 // txSortedMap is a nonce->transaction hash map with a heap based index to allow
 // iterating over the contents in a nonce-incrementing way.
+// nonce-交易映射
 type txSortedMap struct {
-	items map[uint64]*types.Transaction // Hash map storing the transaction data
+	items map[uint64]*types.Transaction // Hash map storing the transaction data 根据nonce映射交易
 	index *nonceHeap                    // Heap of nonces of all the stored transactions (non-strict mode)
-	cache types.Transactions            // Cache of the transactions already sorted
+	cache types.Transactions            // Cache of the transactions already sorted 按nonce排好序的交易
 }
 
 // newTxSortedMap creates a new nonce-sorted transaction map.
@@ -75,12 +77,14 @@ func (m *txSortedMap) Put(tx *types.Transaction) {
 	if m.items[nonce] == nil {
 		heap.Push(m.index, nonce)
 	}
+	//存在则覆盖
 	m.items[nonce], m.cache = tx, nil
 }
 
 // Forward removes all transactions from the map with a nonce lower than the
 // provided threshold. Every removed transaction is returned for any post-removal
 // maintenance.
+// 移除小于门槛值对应nonce的交易
 func (m *txSortedMap) Forward(threshold uint64) types.Transactions {
 	var removed types.Transactions
 
@@ -99,6 +103,7 @@ func (m *txSortedMap) Forward(threshold uint64) types.Transactions {
 
 // Filter iterates over the list of transactions and removes all of them for which
 // the specified function evaluates to true.
+// 过滤符合条件的交易，并删除
 func (m *txSortedMap) Filter(filter func(*types.Transaction) bool) types.Transactions {
 	var removed types.Transactions
 
@@ -110,11 +115,13 @@ func (m *txSortedMap) Filter(filter func(*types.Transaction) bool) types.Transac
 		}
 	}
 	// If transactions were removed, the heap and cache are ruined
+	// 如果有交易被删除（不是通过正常出堆方式pop的），重建堆
 	if len(removed) > 0 {
 		*m.index = make([]uint64, 0, len(m.items))
 		for nonce := range m.items {
 			*m.index = append(*m.index, nonce)
 		}
+		//建堆
 		heap.Init(m.index)
 
 		m.cache = nil
@@ -124,6 +131,7 @@ func (m *txSortedMap) Filter(filter func(*types.Transaction) bool) types.Transac
 
 // Cap places a hard limit on the number of items, returning all transactions
 // exceeding that limit.
+// 指定交易上限数量，多的交易直接丢弃
 func (m *txSortedMap) Cap(threshold int) types.Transactions {
 	// Short circuit if the number of items is under the limit
 	if len(m.items) <= threshold {
@@ -132,6 +140,7 @@ func (m *txSortedMap) Cap(threshold int) types.Transactions {
 	// Otherwise gather and drop the highest nonce'd transactions
 	var drops types.Transactions
 
+	// 排序，从大到小删除
 	sort.Sort(*m.index)
 	for size := len(m.items); size > threshold; size-- {
 		drops = append(drops, m.items[(*m.index)[size-1]])
@@ -175,6 +184,7 @@ func (m *txSortedMap) Remove(nonce uint64) bool {
 // Note, all transactions with nonces lower than start will also be returned to
 // prevent getting into and invalid state. This is not something that should ever
 // happen but better to be self correcting than failing!
+// 返回nonce从start开始并连续的交易集合（安全起见，nonce小于start的也一并返回），返回的交易从list删除
 func (m *txSortedMap) Ready(start uint64) types.Transactions {
 	// Short circuit if no transactions are available
 	if m.index.Len() == 0 || (*m.index)[0] > start {
@@ -200,8 +210,10 @@ func (m *txSortedMap) Len() int {
 // Flatten creates a nonce-sorted slice of transactions based on the loosely
 // sorted internal representation. The result of the sorting is cached in case
 // it's requested again before any modifications are made to the contents.
+// 返回排序完成的可修改的缓存
 func (m *txSortedMap) Flatten() types.Transactions {
 	// If the sorting was not cached yet, create and cache it
+	// cache为空的话需要重新排序
 	if m.cache == nil {
 		m.cache = make(types.Transactions, 0, len(m.items))
 		for _, tx := range m.items {
@@ -219,8 +231,9 @@ func (m *txSortedMap) Flatten() types.Transactions {
 // nonce. The same type can be used both for storing contiguous transactions for
 // the executable/pending queue; and for storing gapped transactions for the non-
 // executable/future queue, with minor behavioral changes.
+// 账户的交易列表，可同时兼容连续的pending和不连续的queue
 type txList struct {
-	strict bool         // Whether nonces are strictly continuous or not
+	strict bool         // Whether nonces are strictly continuous or not 根据nonce是否要求连续，区分pending和queue
 	txs    *txSortedMap // Heap indexed sorted hash map of the transactions
 
 	costcap *big.Int // Price of the highest costing transaction (reset only if exceeds balance)
@@ -239,6 +252,7 @@ func newTxList(strict bool) *txList {
 
 // Overlaps returns whether the transaction specified has the same nonce as one
 // already contained within the list.
+// 判断是否存在相同nonce的交易
 func (l *txList) Overlaps(tx *types.Transaction) bool {
 	return l.txs.Get(tx.Nonce()) != nil
 }
@@ -248,10 +262,12 @@ func (l *txList) Overlaps(tx *types.Transaction) bool {
 //
 // If the new transaction is accepted into the list, the lists' cost and gas
 // thresholds are also potentially updated.
+// 试着往列表增加新交易，加入成功，返回被替换的交易
 func (l *txList) Add(tx *types.Transaction, priceBump uint64) (bool, *types.Transaction) {
 	// If there's an older better transaction, abort
 	old := l.txs.Get(tx.Nonce())
 	if old != nil {
+		// 要替换的交易需要大于被替换交易price的一定百分比
 		threshold := new(big.Int).Div(new(big.Int).Mul(old.GasPrice(), big.NewInt(100+int64(priceBump))), big.NewInt(100))
 		// Have to ensure that the new gas price is higher than the old gas
 		// price as well as checking the percentage threshold to ensure that
@@ -287,6 +303,7 @@ func (l *txList) Forward(threshold uint64) types.Transactions {
 // a point in calculating all the costs or if the balance covers all. If the threshold
 // is lower than the costgas cap, the caps will be reset to a new high after removing
 // the newly invalidated transactions.
+// 过滤删除超出cost或者gas限制的交易
 func (l *txList) Filter(costLimit *big.Int, gasLimit uint64) (types.Transactions, types.Transactions) {
 	// If all transactions are below the threshold, short circuit
 	if l.costcap.Cmp(costLimit) <= 0 && l.gascap <= gasLimit {
@@ -301,13 +318,16 @@ func (l *txList) Filter(costLimit *big.Int, gasLimit uint64) (types.Transactions
 	// If the list was strict, filter anything above the lowest nonce
 	var invalids types.Transactions
 
+	// 如果要求nonce连续，即pending，需要把因删除导致的不合法的交易一并返回
 	if l.strict && len(removed) > 0 {
+		// 记录被删掉的最小nonce
 		lowest := uint64(math.MaxUint64)
 		for _, tx := range removed {
 			if nonce := tx.Nonce(); lowest > nonce {
 				lowest = nonce
 			}
 		}
+		//删掉超过最小nonce的交易
 		invalids = l.txs.Filter(func(tx *types.Transaction) bool { return tx.Nonce() > lowest })
 	}
 	return removed, invalids
@@ -315,6 +335,7 @@ func (l *txList) Filter(costLimit *big.Int, gasLimit uint64) (types.Transactions
 
 // Cap places a hard limit on the number of items, returning all transactions
 // exceeding that limit.
+// 交易列表设上限
 func (l *txList) Cap(threshold int) types.Transactions {
 	return l.txs.Cap(threshold)
 }
@@ -322,8 +343,10 @@ func (l *txList) Cap(threshold int) types.Transactions {
 // Remove deletes a transaction from the maintained list, returning whether the
 // transaction was found, and also returning any transaction invalidated due to
 // the deletion (strict mode only).
+// 删除交易
 func (l *txList) Remove(tx *types.Transaction) (bool, types.Transactions) {
 	// Remove the transaction from the set
+	// 通过交易的nonce查找，删除对应nonce的交易
 	nonce := tx.Nonce()
 	if removed := l.txs.Remove(nonce); !removed {
 		return false, nil
@@ -342,6 +365,7 @@ func (l *txList) Remove(tx *types.Transaction) (bool, types.Transactions) {
 // Note, all transactions with nonces lower than start will also be returned to
 // prevent getting into and invalid state. This is not something that should ever
 // happen but better to be self correcting than failing!
+// 返回nonce从start开始并连续的交易集合（安全起见，nonce小于start的也一并返回），返回的交易从list删除
 func (l *txList) Ready(start uint64) types.Transactions {
 	return l.txs.Ready(start)
 }
@@ -365,11 +389,13 @@ func (l *txList) Flatten() types.Transactions {
 
 // priceHeap is a heap.Interface implementation over transactions for retrieving
 // price-sorted transactions to discard when the pool fills up.
+// 价格小顶堆
 type priceHeap []*types.Transaction
 
 func (h priceHeap) Len() int      { return len(h) }
 func (h priceHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
 
+// 按交易价格从小到大排列，价格相同的情况下，按照nonce从大到小排列
 func (h priceHeap) Less(i, j int) bool {
 	// Sort primarily by price, returning the cheaper one
 	switch h[i].GasPrice().Cmp(h[j].GasPrice()) {
@@ -379,6 +405,7 @@ func (h priceHeap) Less(i, j int) bool {
 		return false
 	}
 	// If the prices match, stabilize via nonces (high nonce is worse)
+	// 价格相同的情况下，按照nonce从大到小排列
 	return h[i].Nonce() > h[j].Nonce()
 }
 
@@ -399,7 +426,7 @@ func (h *priceHeap) Pop() interface{} {
 type txPricedList struct {
 	all    *txLookup  // Pointer to the map of all transactions
 	items  *priceHeap // Heap of prices of all the stored transactions
-	stales int        // Number of stale price points to (re-heap trigger)
+	stales int        // Number of stale price points to (re-heap trigger) 触发堆重建的过时价格的总量
 }
 
 // newTxPricedList creates a new price-sorted transaction heap.
@@ -421,6 +448,7 @@ func (l *txPricedList) Put(tx *types.Transaction) {
 func (l *txPricedList) Removed(count int) {
 	// Bump the stale counter, but exit if still too low (< 25%)
 	l.stales += count
+	// 过时对象超过1/4才重建堆
 	if l.stales <= len(*l.items)/4 {
 		return
 	}
@@ -437,6 +465,7 @@ func (l *txPricedList) Removed(count int) {
 
 // Cap finds all the transactions below the given price threshold, drops them
 // from the priced list and returns them for further removal from the entire pool.
+// 删除price小于门槛值的交易，本地交易除外
 func (l *txPricedList) Cap(threshold *big.Int, local *accountSet) types.Transactions {
 	drop := make(types.Transactions, 0, 128) // Remote underpriced transactions to drop
 	save := make(types.Transactions, 0, 64)  // Local underpriced transactions to keep
@@ -444,7 +473,7 @@ func (l *txPricedList) Cap(threshold *big.Int, local *accountSet) types.Transact
 	for len(*l.items) > 0 {
 		// Discard stale transactions if found during cleanup
 		tx := heap.Pop(l.items).(*types.Transaction)
-		if l.all.Get(tx.Hash()) == nil {
+		if l.all.Get(tx.Hash()) == nil { //说明已删除
 			l.stales--
 			continue
 		}
@@ -455,11 +484,12 @@ func (l *txPricedList) Cap(threshold *big.Int, local *accountSet) types.Transact
 		}
 		// Non stale transaction found, discard unless local
 		if local.containsTx(tx) {
-			save = append(save, tx)
+			save = append(save, tx) // 本地交易保留
 		} else {
 			drop = append(drop, tx)
 		}
 	}
+	// 本地交易放回
 	for _, tx := range save {
 		heap.Push(l.items, tx)
 	}
@@ -468,6 +498,7 @@ func (l *txPricedList) Cap(threshold *big.Int, local *accountSet) types.Transact
 
 // Underpriced checks whether a transaction is cheaper than (or as cheap as) the
 // lowest priced transaction currently being tracked.
+// 检查一个交易是否比最便宜的交易还便宜，本地交易默认返回false
 func (l *txPricedList) Underpriced(tx *types.Transaction, local *accountSet) bool {
 	// Local transactions cannot be underpriced
 	if local.containsTx(tx) {
@@ -475,6 +506,7 @@ func (l *txPricedList) Underpriced(tx *types.Transaction, local *accountSet) boo
 	}
 	// Discard stale price points if found at the heap start
 	for len(*l.items) > 0 {
+		// 堆顶的交易如果不存在，则循环出堆
 		head := []*types.Transaction(*l.items)[0]
 		if l.all.Get(head.Hash()) == nil {
 			l.stales--
@@ -489,11 +521,13 @@ func (l *txPricedList) Underpriced(tx *types.Transaction, local *accountSet) boo
 		return false
 	}
 	cheapest := []*types.Transaction(*l.items)[0]
+	// 比较堆中最便宜的交易价格是否比当前交易高
 	return cheapest.GasPrice().Cmp(tx.GasPrice()) >= 0
 }
 
 // Discard finds a number of most underpriced transactions, removes them from the
 // priced list and returns them for further removal from the entire pool.
+// 丢掉最便宜的n笔交易，本地交易除外
 func (l *txPricedList) Discard(count int, local *accountSet) types.Transactions {
 	drop := make(types.Transactions, 0, count) // Remote underpriced transactions to drop
 	save := make(types.Transactions, 0, 64)    // Local underpriced transactions to keep

@@ -164,6 +164,7 @@ var DefaultTxPoolConfig = TxPoolConfig{
 
 // sanitize checks the provided user configurations and changes anything that's
 // unreasonable or unworkable.
+// 交易池配置参数合法性检查
 func (config *TxPoolConfig) sanitize() TxPoolConfig {
 	conf := *config
 	if conf.Rejournal < time.Second {
@@ -271,6 +272,7 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		reorgShutdownCh: make(chan struct{}),
 		gasPrice:        new(big.Int).SetUint64(config.PriceLimit),
 	}
+	// 增加本地账户
 	pool.locals = newAccountSet(pool.signer)
 	for _, addr := range config.Locals {
 		log.Info("Setting new local account", "address", addr)
@@ -1415,6 +1417,7 @@ func (a addressesByHeartbeat) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 
 // accountSet is simply a set of addresses to check for existence, and a signer
 // capable of deriving addresses from transactions.
+// 账户地址集合
 type accountSet struct {
 	accounts map[common.Address]struct{}
 	signer   types.Signer
@@ -1492,6 +1495,7 @@ func (as *accountSet) merge(other *accountSet) {
 // internal mechanisms. The sole purpose of the type is to permit out-of-bound
 // peeking into the pool in TxPool.Get without having to acquire the widely scoped
 // TxPool.mu mutex.
+// 哈希-交易对照表
 type txLookup struct {
 	all  map[common.Hash]*types.Transaction
 	lock sync.RWMutex
