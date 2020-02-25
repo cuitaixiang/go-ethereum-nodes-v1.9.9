@@ -40,6 +40,8 @@ type devNull struct{}
 func (*devNull) Write(p []byte) (n int, err error) { return len(p), nil }
 func (*devNull) Close() error                      { return nil }
 
+// 交易日志系统
+
 // txJournal is a rotating log of transactions with the aim of storing locally
 // created transactions to allow non-executed ones to survive node restarts.
 type txJournal struct {
@@ -56,6 +58,7 @@ func newTxJournal(path string) *txJournal {
 
 // load parses a transaction journal dump from disk, loading its contents into
 // the specified pool.
+// 从磁盘加载交易
 func (journal *txJournal) load(add func([]*types.Transaction) []error) error {
 	// Skip the parsing if the journal file doesn't exist at all
 	if _, err := os.Stat(journal.path); os.IsNotExist(err) {
@@ -117,6 +120,7 @@ func (journal *txJournal) load(add func([]*types.Transaction) []error) error {
 }
 
 // insert adds the specified transaction to the local disk journal.
+// 插入交易到本地磁盘日志
 func (journal *txJournal) insert(tx *types.Transaction) error {
 	if journal.writer == nil {
 		return errNoActiveJournal
@@ -129,6 +133,7 @@ func (journal *txJournal) insert(tx *types.Transaction) error {
 
 // rotate regenerates the transaction journal based on the current contents of
 // the transaction pool.
+// 用当前交易池的交易替换日志系统中的记录
 func (journal *txJournal) rotate(all map[common.Address]types.Transactions) error {
 	// Close the current journal (if any is open)
 	if journal.writer != nil {

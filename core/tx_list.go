@@ -383,6 +383,7 @@ func (l *txList) Empty() bool {
 // Flatten creates a nonce-sorted slice of transactions based on the loosely
 // sorted internal representation. The result of the sorting is cached in case
 // it's requested again before any modifications are made to the contents.
+// 返回排序完成的可修改的缓存
 func (l *txList) Flatten() types.Transactions {
 	return l.txs.Flatten()
 }
@@ -426,7 +427,7 @@ func (h *priceHeap) Pop() interface{} {
 type txPricedList struct {
 	all    *txLookup  // Pointer to the map of all transactions
 	items  *priceHeap // Heap of prices of all the stored transactions
-	stales int        // Number of stale price points to (re-heap trigger) 触发堆重建的过时价格的总量
+	stales int        // Number of stale price points to (re-heap trigger) 触发堆重建的过时交易的总量
 }
 
 // newTxPricedList creates a new price-sorted transaction heap.

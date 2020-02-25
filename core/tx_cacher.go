@@ -22,6 +22,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
+//交易发送者恢复与缓存器
+
 // senderCacher is a concurrent transaction sender recoverer and cacher.
 var senderCacher = newTxSenderCacher(runtime.NumCPU())
 

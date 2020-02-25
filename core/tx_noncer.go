@@ -67,7 +67,7 @@ func (txn *txNoncer) set(addr common.Address, nonce uint64) {
 
 // setIfLower updates a new virtual nonce into the virtual state database if the
 // the new one is lower.
-// 如果某地址上nonce比记录的nonce低则放入nonce管理器
+// 如果某地址上nonce比记录的nonce低则放入nonce管理器，或者说存放更小的nonce
 func (txn *txNoncer) setIfLower(addr common.Address, nonce uint64) {
 	txn.lock.Lock()
 	defer txn.lock.Unlock()
