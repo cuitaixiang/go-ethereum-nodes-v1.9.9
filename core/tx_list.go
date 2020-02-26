@@ -335,7 +335,7 @@ func (l *txList) Filter(costLimit *big.Int, gasLimit uint64) (types.Transactions
 
 // Cap places a hard limit on the number of items, returning all transactions
 // exceeding that limit.
-// 交易列表设上限
+// 交易列表设上限，返回超过限制的交易
 func (l *txList) Cap(threshold int) types.Transactions {
 	return l.txs.Cap(threshold)
 }
