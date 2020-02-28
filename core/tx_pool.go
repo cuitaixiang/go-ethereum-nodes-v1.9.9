@@ -235,6 +235,7 @@ type TxPool struct {
 	all    *txLookup                    // All transactions to allow lookups
 	priced *txPricedList                // All transactions sorted by price
 
+	// 接收链的状态变化
 	chainHeadCh     chan ChainHeadEvent
 	chainHeadSub    event.Subscription
 	reqResetCh      chan *txpoolResetRequest
@@ -290,15 +291,18 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 	if !config.NoLocals && config.Journal != "" {
 		pool.journal = newTxJournal(config.Journal)
 
+		// 加载本地交易
 		if err := pool.journal.load(pool.AddLocals); err != nil {
 			log.Warn("Failed to load transaction journal", "err", err)
 		}
+		// 根据链的最新状态，保存本地合法交易
 		if err := pool.journal.rotate(pool.local()); err != nil {
 			log.Warn("Failed to rotate transaction journal", "err", err)
 		}
 	}
 
 	// Subscribe events from blockchain and start the main event loop.
+	// 接收链的信号
 	pool.chainHeadSub = pool.chain.SubscribeChainHeadEvent(pool.chainHeadCh)
 	pool.wg.Add(1)
 	go pool.loop()
@@ -331,9 +335,11 @@ func (pool *TxPool) loop() {
 	for {
 		select {
 		// Handle ChainHeadEvent
+		// 链发生变化，请求重置
 		case ev := <-pool.chainHeadCh:
 			if ev.Block != nil {
 				pool.requestReset(head.Header(), ev.Block.Header())
+				// 更新head
 				head = ev.Block
 			}
 
@@ -357,6 +363,7 @@ func (pool *TxPool) loop() {
 			}
 
 		// Handle inactive account transaction eviction
+		// 定时处理不活跃账户的交易
 		case <-evict.C:
 			pool.mu.Lock()
 			for addr := range pool.queue {
@@ -587,6 +594,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 // If a newly added transaction is marked as local, its sending account will be
 // whitelisted, preventing any associated transaction from being dropped out of the pool
 // due to pricing constraints.
+// 增加交易，先试着替换pending，不行就试着加入queue
 func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err error) {
 	// If the transaction is already known, discard it
 	hash := tx.Hash()
@@ -734,7 +742,7 @@ func (pool *TxPool) promoteTx(addr common.Address, hash common.Hash, tx *types.T
 	inserted, old := list.Add(tx, pool.config.PriceBump)
 	if !inserted {
 		// An older transaction was better, discard this
-		// 老交易更好，扔掉现在的交易
+		// 插入失败，说明价格未达到替换标准，扔掉现在的交易
 		pool.all.Remove(hash)
 		pool.priced.Removed(1)
 
@@ -790,16 +798,19 @@ func (pool *TxPool) AddLocal(tx *types.Transaction) error {
 //
 // This method is used to add transactions from the p2p network and does not wait for pool
 // reorganization and internal event propagation.
+// 往交易池添加网络来的交易，异步方法
 func (pool *TxPool) AddRemotes(txs []*types.Transaction) []error {
 	return pool.addTxs(txs, false, false)
 }
 
 // This is like AddRemotes, but waits for pool reorganization. Tests use this method.
+// 往交易池添加网络来的交易，同步方法
 func (pool *TxPool) AddRemotesSync(txs []*types.Transaction) []error {
 	return pool.addTxs(txs, false, true)
 }
 
 // This is like AddRemotes with a single transaction, but waits for pool reorganization. Tests use this method.
+// 往交易池添加网络来的交易，同步方法
 func (pool *TxPool) addRemoteSync(tx *types.Transaction) error {
 	errs := pool.AddRemotesSync([]*types.Transaction{tx})
 	return errs[0]
@@ -809,12 +820,14 @@ func (pool *TxPool) addRemoteSync(tx *types.Transaction) error {
 // wrapper around AddRemotes.
 //
 // Deprecated: use AddRemotes
+// 往交易池添加网络来的交易，异步方法
 func (pool *TxPool) AddRemote(tx *types.Transaction) error {
 	errs := pool.AddRemotes([]*types.Transaction{tx})
 	return errs[0]
 }
 
 // addTxs attempts to queue a batch of transactions if they are valid.
+// 往交易池添加交易，sync:是否需要等待交易池重组完成
 func (pool *TxPool) addTxs(txs []*types.Transaction, local, sync bool) []error {
 	// Filter out known ones without obtaining the pool lock or recovering signatures
 	var (
@@ -823,23 +836,24 @@ func (pool *TxPool) addTxs(txs []*types.Transaction, local, sync bool) []error {
 	)
 	for i, tx := range txs {
 		// If the transaction is known, pre-set the error slot
-		if pool.all.Get(tx.Hash()) != nil {
+		if pool.all.Get(tx.Hash()) != nil { // 交易已存在
 			errs[i] = fmt.Errorf("known transaction: %x", tx.Hash())
 			knownTxMeter.Mark(1)
 			continue
 		}
 		// Accumulate all unknown transactions for deeper processing
-		news = append(news, tx)
+		news = append(news, tx) // 新交易
 	}
 	if len(news) == 0 {
 		return errs
 	}
 	// Cache senders in transactions before obtaining lock (pool.signer is immutable)
-	for _, tx := range news {
+	for _, tx := range news { // 新交易先提取地址
 		types.Sender(pool.signer, tx)
 	}
 	// Process all the new transaction and merge any errors into the original slice
 	pool.mu.Lock()
+	// 添加交易，并获取非替换交易的账户
 	newErrs, dirtyAddrs := pool.addTxsLocked(news, local)
 	pool.mu.Unlock()
 
@@ -851,8 +865,9 @@ func (pool *TxPool) addTxs(txs []*types.Transaction, local, sync bool) []error {
 		errs[nilSlot] = err
 	}
 	// Reorg the pool internals if needed and return
+	// 请求promote操作移动交易
 	done := pool.requestPromoteExecutables(dirtyAddrs)
-	if sync {
+	if sync { // 需要同步则等待完成信号
 		<-done
 	}
 	return errs
@@ -860,13 +875,14 @@ func (pool *TxPool) addTxs(txs []*types.Transaction, local, sync bool) []error {
 
 // addTxsLocked attempts to queue a batch of transactions if they are valid.
 // The transaction pool lock must be held.
+// 往交易池添加交易，如果不是相同nonce值交易的替换，则是插入新交易，返回可能需要移动交易的账户
 func (pool *TxPool) addTxsLocked(txs []*types.Transaction, local bool) ([]error, *accountSet) {
 	dirty := newAccountSet(pool.signer)
 	errs := make([]error, len(txs))
 	for i, tx := range txs {
 		replaced, err := pool.add(tx, local)
 		errs[i] = err
-		if err == nil && !replaced {
+		if err == nil && !replaced { // 如果不是nonce相同的交易替换操作，则说明账户交易可能需要移动
 			dirty.addTx(tx)
 		}
 	}
@@ -876,6 +892,7 @@ func (pool *TxPool) addTxsLocked(txs []*types.Transaction, local bool) ([]error,
 
 // Status returns the status (unknown/pending/queued) of a batch of transactions
 // identified by their hashes.
+// 返回一组txid的状态（unknown/pending/queued）
 func (pool *TxPool) Status(hashes []common.Hash) []TxStatus {
 	status := make([]TxStatus, len(hashes))
 	for i, hash := range hashes {
@@ -898,6 +915,7 @@ func (pool *TxPool) Status(hashes []common.Hash) []TxStatus {
 }
 
 // Get returns a transaction if it is contained in the pool and nil otherwise.
+// 查找交易池交易
 func (pool *TxPool) Get(hash common.Hash) *types.Transaction {
 	return pool.all.Get(hash)
 }
@@ -959,6 +977,7 @@ func (pool *TxPool) removeTx(hash common.Hash, outofbound bool) {
 
 // requestPromoteExecutables requests a pool reset to the new head block.
 // The returned channel is closed when the reset has occurred.
+// 请求重置信号，返回是否完成的同步信号
 func (pool *TxPool) requestReset(oldHead *types.Header, newHead *types.Header) chan struct{} {
 	select {
 	case pool.reqResetCh <- &txpoolResetRequest{oldHead, newHead}:
@@ -1065,20 +1084,24 @@ func (pool *TxPool) scheduleReorgLoop() {
 }
 
 // runReorg runs reset and promoteExecutables on behalf of scheduleReorgLoop.
+// 交易池重组
 func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirtyAccounts *accountSet, events map[common.Address]*txSortedMap) {
 	defer close(done)
 
 	var promoteAddrs []common.Address
 	if dirtyAccounts != nil {
+		// 提取需要promote的地址列表
 		promoteAddrs = dirtyAccounts.flatten()
 	}
 	pool.mu.Lock()
 	if reset != nil {
 		// Reset from the old head to the new, rescheduling any reorged transactions
+		// 重置链的状态
 		pool.reset(reset.oldHead, reset.newHead)
 
 		// Nonces were reset, discard any events that became stale
 		for addr := range events {
+			// 由于链状态重置，对要插入的交易的nonce做一次检查
 			events[addr].Forward(pool.pendingNonces.get(addr))
 			if events[addr].Len() == 0 {
 				delete(events, addr)
@@ -1086,13 +1109,16 @@ func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirt
 		}
 		// Reset needs promote for all addresses
 		promoteAddrs = promoteAddrs[:0]
+		// 重置需要把queue中所有的账户进行promote
 		for addr := range pool.queue {
 			promoteAddrs = append(promoteAddrs, addr)
 		}
 	}
 	// Check for pending transactions for every account that sent new ones
+	// 先进行promote操作
 	promoted := pool.promoteExecutables(promoteAddrs)
 	for _, tx := range promoted {
+		// 将promote的交易记录反馈
 		addr, _ := types.Sender(pool.signer, tx)
 		if _, ok := events[addr]; !ok {
 			events[addr] = newTxSortedMap()
@@ -1102,21 +1128,25 @@ func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirt
 	// If a new block appeared, validate the pool of pending transactions. This will
 	// remove any transaction that has been included in the block or was invalidated
 	// because of another transaction (e.g. higher gas price).
-	if reset != nil {
+	if reset != nil { // 如果链发生了切换，需要重新检查pending
 		pool.demoteUnexecutables()
 	}
 	// Ensure pool.queue and pool.pending sizes stay within the configured limits.
+	// 确保不超限制
 	pool.truncatePending()
 	pool.truncateQueue()
 
 	// Update all accounts to the latest known pending nonce
 	for addr, list := range pool.pending {
+		// 对pending进行一次排序
 		txs := list.Flatten() // Heavy but will be cached and is needed by the miner anyway
+		// 设置pending nonce值
 		pool.pendingNonces.set(addr, txs[len(txs)-1].Nonce()+1)
 	}
 	pool.mu.Unlock()
 
 	// Notify subsystems for newly added transactions
+	// 反馈新增的交易
 	if len(events) > 0 {
 		var txs []*types.Transaction
 		for _, set := range events {
@@ -1128,6 +1158,7 @@ func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirt
 
 // reset retrieves the current state of the blockchain and ensures the content
 // of the transaction pool is valid with regard to the chain state.
+// 重置状态库、pending nonce、重新注入另外链上的交易
 func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	// If we're reorging an old state, reinject all dropped transactions
 	// 交易池重新注入因链的重组丢掉的交易
@@ -1221,17 +1252,21 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 // promoteExecutables moves transactions that have become processable from the
 // future queue to the set of pending transactions. During this process, all
 // invalidated transactions (low nonce, low balance) are deleted.
+// 把相关账户交易尝试从queue向pending转移，并移除这个过程中发现的不合法的交易
 func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Transaction {
 	// Track the promoted transactions to broadcast them at once
 	var promoted []*types.Transaction
 
 	// Iterate over all accounts and promote any executable transactions
 	for _, addr := range accounts {
+		// 对每个账户从其对应queue中尝试把符合条件的交易放入pending
 		list := pool.queue[addr]
 		if list == nil {
 			continue // Just in case someone calls with a non existing account
 		}
 		// Drop all transactions that are deemed too old (low nonce)
+		// 先进行一下合法性检查：
+		// 1.移除nonce值比上链的都小的交易
 		forwards := list.Forward(pool.currentState.GetNonce(addr))
 		for _, tx := range forwards {
 			hash := tx.Hash()
@@ -1239,6 +1274,7 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 			log.Trace("Removed old queued transaction", "hash", hash)
 		}
 		// Drop all transactions that are too costly (low balance or out of gas)
+		// 2.移除余额不够的或者需要gas太多的
 		drops, _ := list.Filter(pool.currentState.GetBalance(addr), pool.currentMaxGas)
 		for _, tx := range drops {
 			hash := tx.Hash()
@@ -1248,6 +1284,7 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 		queuedNofundsMeter.Mark(int64(len(drops)))
 
 		// Gather all executable transactions and promote them
+		// 收集起始nonce不比pending当前大，并且nonce连续的交易列表，将其尝试插入pending中
 		readies := list.Ready(pool.pendingNonces.get(addr))
 		for _, tx := range readies {
 			hash := tx.Hash()
@@ -1259,6 +1296,7 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 		queuedGauge.Dec(int64(len(readies)))
 
 		// Drop all transactions over the allowed limit
+		// 移除queue中超过单个账户上限的交易
 		var caps types.Transactions
 		if !pool.locals.contains(addr) {
 			caps = list.Cap(int(pool.config.AccountQueue))
@@ -1276,6 +1314,7 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 			localGauge.Dec(int64(len(forwards) + len(drops) + len(caps)))
 		}
 		// Delete the entire queue entry if it became empty.
+		// 如果删空了，从总queue中去除该账户
 		if list.Empty() {
 			delete(pool.queue, addr)
 		}
@@ -1443,19 +1482,23 @@ func (pool *TxPool) truncateQueue() {
 // demoteUnexecutables removes invalid and processed transactions from the pools
 // executable/pending queue and any subsequent transactions that become unexecutable
 // are moved back into the future queue.
+// 将pending账户中的交易不合法的删除，nonce不连续的放回queue
 func (pool *TxPool) demoteUnexecutables() {
 	// Iterate over all accounts and demote any non-executable transactions
 	for addr, list := range pool.pending {
+		// 遍历pending账户，取状态数据库上链nonce
 		nonce := pool.currentState.GetNonce(addr)
 
 		// Drop all transactions that are deemed too old (low nonce)
 		olds := list.Forward(nonce)
+		// nonce比链上的都小，直接丢掉
 		for _, tx := range olds {
 			hash := tx.Hash()
 			pool.all.Remove(hash)
 			log.Trace("Removed old pending transaction", "hash", hash)
 		}
 		// Drop all transactions that are too costly (low balance or out of gas), and queue any invalids back for later
+		// 单笔交易超过余额的或者超过最大gas限制的，过滤删除
 		drops, invalids := list.Filter(pool.currentState.GetBalance(addr), pool.currentMaxGas)
 		for _, tx := range drops {
 			hash := tx.Hash()
@@ -1465,6 +1508,7 @@ func (pool *TxPool) demoteUnexecutables() {
 		pool.priced.Removed(len(olds) + len(drops))
 		pendingNofundsMeter.Mark(int64(len(drops)))
 
+		// 把因删除导致pending中nonce不连续的交易放回queue
 		for _, tx := range invalids {
 			hash := tx.Hash()
 			log.Trace("Demoting pending transaction", "hash", hash)
@@ -1485,6 +1529,7 @@ func (pool *TxPool) demoteUnexecutables() {
 			pendingGauge.Dec(int64(len(gapped)))
 		}
 		// Delete the entire queue entry if it became empty.
+		// 如果账户没交易了，从总pengding列表和心跳列表删除
 		if list.Empty() {
 			delete(pool.pending, addr)
 			delete(pool.beats, addr)
@@ -1550,6 +1595,7 @@ func (as *accountSet) add(addr common.Address) {
 }
 
 // addTx adds the sender of tx into the set.
+// 添加交易发送者至账户集
 func (as *accountSet) addTx(tx *types.Transaction) {
 	if addr, err := types.Sender(as.signer, tx); err == nil {
 		as.add(addr)
@@ -1558,6 +1604,7 @@ func (as *accountSet) addTx(tx *types.Transaction) {
 
 // flatten returns the list of addresses within this set, also caching it for later
 // reuse. The returned slice should not be changed!
+// 往缓存追加一组地址
 func (as *accountSet) flatten() []common.Address {
 	if as.cache == nil {
 		accounts := make([]common.Address, 0, len(as.accounts))

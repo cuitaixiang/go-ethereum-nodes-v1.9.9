@@ -236,7 +236,7 @@ type txList struct {
 	strict bool         // Whether nonces are strictly continuous or not 根据nonce是否要求连续，区分pending和queue
 	txs    *txSortedMap // Heap indexed sorted hash map of the transactions
 
-	costcap *big.Int // Price of the highest costing transaction (reset only if exceeds balance)
+	costcap *big.Int // Price of the highest costing transaction (reset only if exceeds balance) 花费最多的
 	gascap  uint64   // Gas limit of the highest spending transaction (reset only if exceeds block limit)
 }
 
@@ -290,6 +290,7 @@ func (l *txList) Add(tx *types.Transaction, priceBump uint64) (bool, *types.Tran
 // Forward removes all transactions from the list with a nonce lower than the
 // provided threshold. Every removed transaction is returned for any post-removal
 // maintenance.
+// 移除小于门槛值对应nonce的交易
 func (l *txList) Forward(threshold uint64) types.Transactions {
 	return l.txs.Forward(threshold)
 }
@@ -303,7 +304,7 @@ func (l *txList) Forward(threshold uint64) types.Transactions {
 // a point in calculating all the costs or if the balance covers all. If the threshold
 // is lower than the costgas cap, the caps will be reset to a new high after removing
 // the newly invalidated transactions.
-// 过滤删除超出cost或者gas限制的交易
+// 过滤删除超出cost或者gas限制的交易，返回符合条件被删掉的交易和pending中nonce不连续的交易
 func (l *txList) Filter(costLimit *big.Int, gasLimit uint64) (types.Transactions, types.Transactions) {
 	// If all transactions are below the threshold, short circuit
 	if l.costcap.Cmp(costLimit) <= 0 && l.gascap <= gasLimit {
@@ -366,6 +367,7 @@ func (l *txList) Remove(tx *types.Transaction) (bool, types.Transactions) {
 // prevent getting into and invalid state. This is not something that should ever
 // happen but better to be self correcting than failing!
 // 返回nonce从start开始并连续的交易集合（安全起见，nonce小于start的也一并返回），返回的交易从list删除
+// 或者说返回起始nonce不大于start的nonce连续的交易列表
 func (l *txList) Ready(start uint64) types.Transactions {
 	return l.txs.Ready(start)
 }

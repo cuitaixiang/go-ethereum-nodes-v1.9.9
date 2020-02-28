@@ -32,6 +32,8 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
+// 区块三种形态：extblock：网络传输态，storageblock：数据库存储态，Block：内存态
+
 var (
 	EmptyRootHash  = DeriveSha(Transactions{})
 	EmptyUncleHash = rlpHash([]*Header(nil))
@@ -40,6 +42,7 @@ var (
 // A BlockNonce is a 64-bit hash which proves (combined with the
 // mix-hash) that a sufficient amount of computation has been carried
 // out on a block.
+// 区块工作量证明
 type BlockNonce [8]byte
 
 // EncodeNonce converts the given integer to a block nonce.
@@ -67,6 +70,7 @@ func (n *BlockNonce) UnmarshalText(input []byte) error {
 //go:generate gencodec -type Header -field-override headerMarshaling -out gen_header_json.go
 
 // Header represents a block header in the Ethereum blockchain.
+// json域是用来生成json输出时重命名，gencodec中required是必选的，没有的为可选（测试链非pow）
 type Header struct {
 	ParentHash  common.Hash    `json:"parentHash"       gencodec:"required"`
 	UncleHash   common.Hash    `json:"sha3Uncles"       gencodec:"required"`
@@ -86,6 +90,7 @@ type Header struct {
 }
 
 // field type overrides for gencodec
+// 执行gencodec命令时同名成员变量替换
 type headerMarshaling struct {
 	Difficulty *hexutil.Big
 	Number     *hexutil.Big
@@ -106,6 +111,7 @@ var headerSize = common.StorageSize(reflect.TypeOf(Header{}).Size())
 
 // Size returns the approximate memory used by all internal contents. It is used
 // to approximate and limit the memory consumption of various caches.
+// 内存中的近似大小
 func (h *Header) Size() common.StorageSize {
 	return headerSize + common.StorageSize(len(h.Extra)+(h.Difficulty.BitLen()+h.Number.BitLen())/8)
 }
@@ -114,6 +120,7 @@ func (h *Header) Size() common.StorageSize {
 // any 'sane' production values should hold, and can mainly be used to prevent
 // that the unbounded fields are stuffed with junk data to add processing
 // overhead
+// 基本长度检查
 func (h *Header) SanityCheck() error {
 	if h.Number != nil && !h.Number.IsUint64() {
 		return fmt.Errorf("too large block number: bitlen %d", h.Number.BitLen())
@@ -129,6 +136,7 @@ func (h *Header) SanityCheck() error {
 	return nil
 }
 
+// 生成rlp的sha3 hash
 func rlpHash(x interface{}) (h common.Hash) {
 	hw := sha3.NewLegacyKeccak256()
 	rlp.Encode(hw, x)
@@ -138,27 +146,31 @@ func rlpHash(x interface{}) (h common.Hash) {
 
 // Body is a simple (mutable, non-safe) data container for storing and moving
 // a block's data contents (transactions and uncles) together.
+// 区块体
 type Body struct {
 	Transactions []*Transaction
 	Uncles       []*Header
 }
 
 // Block represents an entire block in the Ethereum blockchain.
+// 完整的区块
 type Block struct {
 	header       *Header
 	uncles       []*Header
 	transactions Transactions
 
-	// caches
+	// caches 缓存hash和编码后的size
 	hash atomic.Value
 	size atomic.Value
 
 	// Td is used by package core to store the total difficulty
 	// of the chain up to and including the block.
+	// 累计难度
 	td *big.Int
 
 	// These fields are used by package eth to track
 	// inter-peer block relay.
+	// 接收时间和来源
 	ReceivedAt   time.Time
 	ReceivedFrom interface{}
 }
@@ -166,6 +178,7 @@ type Block struct {
 // DeprecatedTd is an old relic for extracting the TD of a block. It is in the
 // code solely to facilitate upgrading the database from the old format to the
 // new, after which it should be deleted. Do not use!
+// 升级用接口，不鼓励用
 func (b *Block) DeprecatedTd() *big.Int {
 	return b.td
 }
@@ -177,6 +190,7 @@ func (b *Block) DeprecatedTd() *big.Int {
 type StorageBlock Block
 
 // "external" block encoding. used for eth protocol, etc.
+// 区块编码，网络传输用
 type extblock struct {
 	Header *Header
 	Txs    []*Transaction
@@ -185,6 +199,7 @@ type extblock struct {
 
 // [deprecated by eth/63]
 // "storage" block encoding. used for database.
+// 网络编码，数据库存储用，多了累计难度值字段
 type storageblock struct {
 	Header *Header
 	Txs    []*Transaction
@@ -240,6 +255,7 @@ func NewBlockWithHeader(header *Header) *Block {
 
 // CopyHeader creates a deep copy of a block header to prevent side effects from
 // modifying a header variable.
+// 深拷贝header
 func CopyHeader(h *Header) *Header {
 	cpy := *h
 	if cpy.Difficulty = new(big.Int); h.Difficulty != nil {
@@ -256,6 +272,7 @@ func CopyHeader(h *Header) *Header {
 }
 
 // DecodeRLP decodes the Ethereum
+// rlp解码
 func (b *Block) DecodeRLP(s *rlp.Stream) error {
 	var eb extblock
 	_, size, _ := s.Kind()
@@ -268,6 +285,7 @@ func (b *Block) DecodeRLP(s *rlp.Stream) error {
 }
 
 // EncodeRLP serializes b into the Ethereum RLP block format.
+// rlp编码
 func (b *Block) EncodeRLP(w io.Writer) error {
 	return rlp.Encode(w, extblock{
 		Header: b.header,
@@ -277,6 +295,7 @@ func (b *Block) EncodeRLP(w io.Writer) error {
 }
 
 // [deprecated by eth/63]
+// 解码包含累计难度值
 func (b *StorageBlock) DecodeRLP(s *rlp.Stream) error {
 	var sb storageblock
 	if err := s.Decode(&sb); err != nil {
@@ -288,6 +307,7 @@ func (b *StorageBlock) DecodeRLP(s *rlp.Stream) error {
 
 // TODO: copies
 
+// setter和getter方法
 func (b *Block) Uncles() []*Header          { return b.uncles }
 func (b *Block) Transactions() Transactions { return b.transactions }
 
@@ -325,6 +345,7 @@ func (b *Block) Body() *Body { return &Body{b.transactions, b.uncles} }
 
 // Size returns the true RLP encoded storage size of the block, either by encoding
 // and returning it, or returning a previsouly cached value.
+// 返回rlp编码尺寸
 func (b *Block) Size() common.StorageSize {
 	if size := b.size.Load(); size != nil {
 		return size.(common.StorageSize)
@@ -348,6 +369,7 @@ func (c *writeCounter) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
+// 叔块哈希，按照数组列表rlp编码后计算
 func CalcUncleHash(uncles []*Header) common.Hash {
 	if len(uncles) == 0 {
 		return EmptyUncleHash
@@ -357,17 +379,19 @@ func CalcUncleHash(uncles []*Header) common.Hash {
 
 // WithSeal returns a new block with the data from b but the header replaced with
 // the sealed one.
+// 用提供的header替换block的header
 func (b *Block) WithSeal(header *Header) *Block {
 	cpy := *header
 
 	return &Block{
-		header:       &cpy,
+		header:       &cpy, // 指向同一个header内容
 		transactions: b.transactions,
 		uncles:       b.uncles,
 	}
 }
 
 // WithBody returns a new block with the given transaction and uncle contents.
+// 替换body
 func (b *Block) WithBody(transactions []*Transaction, uncles []*Header) *Block {
 	block := &Block{
 		header:       CopyHeader(b.header),
@@ -383,6 +407,7 @@ func (b *Block) WithBody(transactions []*Transaction, uncles []*Header) *Block {
 
 // Hash returns the keccak256 hash of b's header.
 // The hash is computed on the first call and cached thereafter.
+// 区块哈希，即header哈希
 func (b *Block) Hash() common.Hash {
 	if hash := b.hash.Load(); hash != nil {
 		return hash.(common.Hash)
