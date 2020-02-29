@@ -214,10 +214,11 @@ type TxPool struct {
 	chainconfig *params.ChainConfig
 	chain       blockChain
 	gasPrice    *big.Int
-	txFeed      event.Feed
-	scope       event.SubscriptionScope
-	signer      types.Signer
-	mu          sync.RWMutex
+	// 反馈新增交易
+	txFeed event.Feed
+	scope  event.SubscriptionScope
+	signer types.Signer
+	mu     sync.RWMutex
 
 	istanbul bool // Fork indicator whether we are in the istanbul stage.
 
@@ -236,12 +237,17 @@ type TxPool struct {
 	priced *txPricedList                // All transactions sorted by price
 
 	// 接收链的状态变化
-	chainHeadCh     chan ChainHeadEvent
-	chainHeadSub    event.Subscription
-	reqResetCh      chan *txpoolResetRequest
-	reqPromoteCh    chan *accountSet
-	queueTxEventCh  chan *types.Transaction // 新增交易通信信道
-	reorgDoneCh     chan chan struct{}
+	chainHeadCh  chan ChainHeadEvent
+	chainHeadSub event.Subscription
+	// 重置请求
+	reqResetCh chan *txpoolResetRequest
+	// promote请求
+	reqPromoteCh chan *accountSet
+	// 反馈新增交易通信信道
+	queueTxEventCh chan *types.Transaction
+	// 重组完成通知
+	reorgDoneCh chan chan struct{}
+	// 关闭通知
 	reorgShutdownCh chan struct{}  // requests shutdown of scheduleReorgLoop
 	wg              sync.WaitGroup // tracks loop, scheduleReorgLoop
 }
@@ -313,6 +319,7 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 // loop is the transaction pool's main event loop, waiting for and reacting to
 // outside blockchain events as well as for various reporting and transaction
 // eviction events.
+// 主事件循环
 func (pool *TxPool) loop() {
 	defer pool.wg.Done()
 
@@ -344,6 +351,7 @@ func (pool *TxPool) loop() {
 			}
 
 		// System shutdown.
+		// 系统关闭
 		case <-pool.chainHeadSub.Err():
 			close(pool.reorgShutdownCh)
 			return
@@ -412,6 +420,7 @@ func (pool *TxPool) Stop() {
 
 // SubscribeNewTxsEvent registers a subscription of NewTxsEvent and
 // starts sending event to the given channel.
+// 注册反馈新增交易接收者
 func (pool *TxPool) SubscribeNewTxsEvent(ch chan<- NewTxsEvent) event.Subscription {
 	return pool.scope.Track(pool.txFeed.Subscribe(ch))
 }
@@ -653,7 +662,7 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 		pool.priced.Put(tx)
 		// 尝试记入日志
 		pool.journalTx(from, tx)
-		// 插入队列，等待进入交易池
+		// 反馈进入pending的交易
 		pool.queueTxEvent(tx)
 		log.Trace("Pooled new executable transaction", "hash", hash, "from", from, "to", tx.To())
 		return old != nil, nil
@@ -1000,6 +1009,7 @@ func (pool *TxPool) requestPromoteExecutables(set *accountSet) chan struct{} {
 }
 
 // queueTxEvent enqueues a transaction event to be sent in the next reorg run.
+// 发送反馈新增交易请求
 func (pool *TxPool) queueTxEvent(tx *types.Transaction) {
 	select {
 	case pool.queueTxEventCh <- tx:
@@ -1010,6 +1020,7 @@ func (pool *TxPool) queueTxEvent(tx *types.Transaction) {
 // scheduleReorgLoop schedules runs of reset and promoteExecutables. Code above should not
 // call those methods directly, but request them being run using requestReset and
 // requestPromoteExecutables instead.
+// 交易池重组循环：链状态改变请求重置或者promote可在一轮重组完成后触发
 func (pool *TxPool) scheduleReorgLoop() {
 	defer pool.wg.Done()
 
@@ -1019,7 +1030,7 @@ func (pool *TxPool) scheduleReorgLoop() {
 		launchNextRun bool
 		reset         *txpoolResetRequest
 		dirtyAccounts *accountSet                             // 受影响的账户
-		queuedEvents  = make(map[common.Address]*txSortedMap) // 临时queue存放新增交易，用于批量新增
+		queuedEvents  = make(map[common.Address]*txSortedMap) // 临时queue存放新增交易，用于批量反馈
 	)
 	for {
 		// Launch next background reorg if needed
@@ -1042,14 +1053,16 @@ func (pool *TxPool) scheduleReorgLoop() {
 			// Reset request: update head if request is already pending.
 			if reset == nil {
 				reset = req
-			} else {
+			} else { // 已有重置请求，只用替换head
 				reset.newHead = req.newHead
 			}
 			launchNextRun = true
+			// 等待完成
 			pool.reorgDoneCh <- nextDone
 
 		case req := <-pool.reqPromoteCh:
 			// Promote request: update address set if request is already pending.
+			// 合并要更新的账户
 			if dirtyAccounts == nil {
 				dirtyAccounts = req
 			} else {
@@ -1061,7 +1074,7 @@ func (pool *TxPool) scheduleReorgLoop() {
 		case tx := <-pool.queueTxEventCh:
 			// Queue up the event, but don't schedule a reorg. It's up to the caller to
 			// request one later if they want the events sent.
-			// 新增交易放入临时queue等待处理
+			// 新增交易放入临时queue等待反馈
 			addr, _ := types.Sender(pool.signer, tx)
 			if _, ok := queuedEvents[addr]; !ok {
 				queuedEvents[addr] = newTxSortedMap()
@@ -1069,7 +1082,7 @@ func (pool *TxPool) scheduleReorgLoop() {
 			queuedEvents[addr].Put(tx)
 
 		case <-curDone:
-			// 标志当前轮重组完成，标志置位，可以进行下一轮
+			// 标志当前轮重组完成，标志置位，方可进行下一轮
 			curDone = nil
 
 		case <-pool.reorgShutdownCh:
@@ -1086,6 +1099,7 @@ func (pool *TxPool) scheduleReorgLoop() {
 // runReorg runs reset and promoteExecutables on behalf of scheduleReorgLoop.
 // 交易池重组
 func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirtyAccounts *accountSet, events map[common.Address]*txSortedMap) {
+	// 重组完成通知
 	defer close(done)
 
 	var promoteAddrs []common.Address
