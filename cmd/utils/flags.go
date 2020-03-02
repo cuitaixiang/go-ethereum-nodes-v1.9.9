@@ -667,11 +667,14 @@ var (
 	}
 
 	// Gas price oracle settings
+	// oracle寻找最优的gas price
+	// 参考最近多少个区块
 	GpoBlocksFlag = cli.IntFlag{
 		Name:  "gpoblocks",
 		Usage: "Number of recent blocks to check for gas prices",
 		Value: eth.DefaultConfig.GPO.Blocks,
 	}
+	// 多大比例矿工接受
 	GpoPercentileFlag = cli.IntFlag{
 		Name:  "gpopercentile",
 		Usage: "Suggested gas price is the given percentile of a set of recent transaction gas prices",
@@ -973,6 +976,7 @@ func setIPC(ctx *cli.Context, cfg *node.Config) {
 }
 
 // setLes configures the les server and ultra light client settings from the command line flags.
+// 为轻节点提供服务的配置
 func setLes(ctx *cli.Context, cfg *eth.Config) {
 	if ctx.GlobalIsSet(LightLegacyServFlag.Name) {
 		cfg.LightServ = ctx.GlobalInt(LightLegacyServFlag.Name)
@@ -1009,6 +1013,7 @@ func setLes(ctx *cli.Context, cfg *eth.Config) {
 
 // makeDatabaseHandles raises out the number of allowed file handles per process
 // for Geth and returns half of the allowance to assign to the database.
+// 数据库可使用的文件描述符
 func makeDatabaseHandles() int {
 	limit, err := fdlimit.Maximum()
 	if err != nil {
@@ -1048,9 +1053,11 @@ func MakeAddress(ks *keystore.KeyStore, account string) (accounts.Account, error
 
 // setEtherbase retrieves the etherbase either from the directly specified
 // command line flags or from the keystore if CLI indexed.
+// 设置矿工地址（从key store读取或者参数指定）
 func setEtherbase(ctx *cli.Context, ks *keystore.KeyStore, cfg *eth.Config) {
 	// Extract the current etherbase, new flag overriding legacy one
 	var etherbase string
+	// 先读参数配置
 	if ctx.GlobalIsSet(MinerLegacyEtherbaseFlag.Name) {
 		etherbase = ctx.GlobalString(MinerLegacyEtherbaseFlag.Name)
 	}
@@ -1060,6 +1067,7 @@ func setEtherbase(ctx *cli.Context, ks *keystore.KeyStore, cfg *eth.Config) {
 	// Convert the etherbase into an address and configure it
 	if etherbase != "" {
 		if ks != nil {
+			// 转换成账户
 			account, err := MakeAddress(ks, etherbase)
 			if err != nil {
 				Fatalf("Invalid miner etherbase: %v", err)
@@ -1228,6 +1236,7 @@ func setDataDir(ctx *cli.Context, cfg *node.Config) {
 	}
 }
 
+// oracle寻找最优gas price设置
 func setGPO(ctx *cli.Context, cfg *gasprice.Config) {
 	if ctx.GlobalIsSet(GpoBlocksFlag.Name) {
 		cfg.Blocks = ctx.GlobalInt(GpoBlocksFlag.Name)
@@ -1237,6 +1246,7 @@ func setGPO(ctx *cli.Context, cfg *gasprice.Config) {
 	}
 }
 
+// 配置交易池
 func setTxPool(ctx *cli.Context, cfg *core.TxPoolConfig) {
 	if ctx.GlobalIsSet(TxPoolLocalsFlag.Name) {
 		locals := strings.Split(ctx.GlobalString(TxPoolLocalsFlag.Name), ",")
@@ -1280,6 +1290,7 @@ func setTxPool(ctx *cli.Context, cfg *core.TxPoolConfig) {
 	}
 }
 
+// 配置ethash算法相关
 func setEthash(ctx *cli.Context, cfg *eth.Config) {
 	if ctx.GlobalIsSet(EthashCacheDirFlag.Name) {
 		cfg.Ethash.CacheDir = ctx.GlobalString(EthashCacheDirFlag.Name)
@@ -1301,6 +1312,7 @@ func setEthash(ctx *cli.Context, cfg *eth.Config) {
 	}
 }
 
+// 配置挖矿相关
 func setMiner(ctx *cli.Context, cfg *miner.Config) {
 	if ctx.GlobalIsSet(MinerNotifyFlag.Name) {
 		cfg.Notify = strings.Split(ctx.GlobalString(MinerNotifyFlag.Name), ",")
@@ -1334,6 +1346,7 @@ func setMiner(ctx *cli.Context, cfg *miner.Config) {
 	}
 }
 
+// 配置链（number-hash）白名单，必须接受
 func setWhitelist(ctx *cli.Context, cfg *eth.Config) {
 	whitelist := ctx.GlobalString(WhitelistFlag.Name)
 	if whitelist == "" {
@@ -1412,8 +1425,10 @@ func SetShhConfig(ctx *cli.Context, stack *node.Node, cfg *whisper.Config) {
 }
 
 // SetEthConfig applies eth-related command line flags to the config.
+// 根据以太坊设置使配置生效
 func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *eth.Config) {
 	// Avoid conflicting network flags
+	// 网络设置不能冲突
 	CheckExclusive(ctx, DeveloperFlag, TestnetFlag, RinkebyFlag, GoerliFlag)
 	CheckExclusive(ctx, LightLegacyServFlag, LightServeFlag, SyncModeFlag, "light")
 	CheckExclusive(ctx, DeveloperFlag, ExternalSignerFlag) // Can't use both ephemeral unlocked and external signer
@@ -1422,51 +1437,71 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *eth.Config) {
 	if keystores := stack.AccountManager().Backends(keystore.KeyStoreType); len(keystores) > 0 {
 		ks = keystores[0].(*keystore.KeyStore)
 	}
+	// 设置coinbase
 	setEtherbase(ctx, ks, cfg)
+	// 设置gas price oracle配置
 	setGPO(ctx, &cfg.GPO)
+	// 设置交易池
 	setTxPool(ctx, &cfg.TxPool)
+	// ethash配置
 	setEthash(ctx, cfg)
+	// 设置挖矿相关
 	setMiner(ctx, &cfg.Miner)
+	// 设置链白名单
 	setWhitelist(ctx, cfg)
+	// 设置为轻节点服务选项
 	setLes(ctx, cfg)
 
+	// 同步模式配置
 	if ctx.GlobalIsSet(SyncModeFlag.Name) {
 		cfg.SyncMode = *GlobalTextMarshaler(ctx, SyncModeFlag.Name).(*downloader.SyncMode)
 	}
+	// 网络id配置
 	if ctx.GlobalIsSet(NetworkIdFlag.Name) {
 		cfg.NetworkId = ctx.GlobalUint64(NetworkIdFlag.Name)
 	}
+	// 缓存使用配置
 	if ctx.GlobalIsSet(CacheFlag.Name) || ctx.GlobalIsSet(CacheDatabaseFlag.Name) {
 		cfg.DatabaseCache = ctx.GlobalInt(CacheFlag.Name) * ctx.GlobalInt(CacheDatabaseFlag.Name) / 100
 	}
+	// 数据库可使用的文件描述符
 	cfg.DatabaseHandles = makeDatabaseHandles()
+	// 数据冷藏室目录配置
 	if ctx.GlobalIsSet(AncientFlag.Name) {
 		cfg.DatabaseFreezer = ctx.GlobalString(AncientFlag.Name)
 	}
 
+	// gc模式
 	if gcmode := ctx.GlobalString(GCModeFlag.Name); gcmode != "full" && gcmode != "archive" {
 		Fatalf("--%s must be either 'full' or 'archive'", GCModeFlag.Name)
 	}
+	// 配置修剪模式
 	if ctx.GlobalIsSet(GCModeFlag.Name) {
 		cfg.NoPruning = ctx.GlobalString(GCModeFlag.Name) == "archive"
 	}
+	// 导入块时，是否启用数据预取功能
 	if ctx.GlobalIsSet(CacheNoPrefetchFlag.Name) {
 		cfg.NoPrefetch = ctx.GlobalBool(CacheNoPrefetchFlag.Name)
 	}
+	// trie允许使用缓存配置
 	if ctx.GlobalIsSet(CacheFlag.Name) || ctx.GlobalIsSet(CacheTrieFlag.Name) {
 		cfg.TrieCleanCache = ctx.GlobalInt(CacheFlag.Name) * ctx.GlobalInt(CacheTrieFlag.Name) / 100
 	}
+	// trie prune允许使用的缓存配置
 	if ctx.GlobalIsSet(CacheFlag.Name) || ctx.GlobalIsSet(CacheGCFlag.Name) {
 		cfg.TrieDirtyCache = ctx.GlobalInt(CacheFlag.Name) * ctx.GlobalInt(CacheGCFlag.Name) / 100
 	}
+	// 文档目录
 	if ctx.GlobalIsSet(DocRootFlag.Name) {
 		cfg.DocRoot = ctx.GlobalString(DocRootFlag.Name)
 	}
+	// 是否记录vm和合约相关的信息
 	if ctx.GlobalIsSet(VMEnableDebugFlag.Name) {
 		// TODO(fjl): force-enable this in --dev mode
 		cfg.EnablePreimageRecording = ctx.GlobalBool(VMEnableDebugFlag.Name)
 	}
 
+	// evm相关配置
 	if ctx.GlobalIsSet(EWASMInterpreterFlag.Name) {
 		cfg.EWASMInterpreter = ctx.GlobalString(EWASMInterpreterFlag.Name)
 	}
@@ -1474,12 +1509,14 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *eth.Config) {
 	if ctx.GlobalIsSet(EVMInterpreterFlag.Name) {
 		cfg.EVMInterpreter = ctx.GlobalString(EVMInterpreterFlag.Name)
 	}
+	// 设置gas上限
 	if ctx.GlobalIsSet(RPCGlobalGasCap.Name) {
 		cfg.RPCGasCap = new(big.Int).SetUint64(ctx.GlobalUint64(RPCGlobalGasCap.Name))
 	}
 
 	// Override any default configs for hard coded networks.
 	switch {
+	// 使用哪种网络，用来覆盖当前配置
 	case ctx.GlobalBool(TestnetFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 3
@@ -1529,12 +1566,15 @@ func RegisterEthService(stack *node.Node, cfg *eth.Config) {
 	var err error
 	if cfg.SyncMode == downloader.LightSync {
 		err = stack.Register(func(ctx *node.ServiceContext) (node.Service, error) {
+			// 使用轻节点
 			return les.New(ctx, cfg)
 		})
 	} else {
 		err = stack.Register(func(ctx *node.ServiceContext) (node.Service, error) {
+			// 使用全节点
 			fullNode, err := eth.New(ctx, cfg)
 			if fullNode != nil && cfg.LightServ > 0 {
+				// 为轻节点提供服务
 				ls, _ := les.NewLesServer(fullNode, cfg)
 				fullNode.AddLesServer(ls)
 			}

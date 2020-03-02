@@ -56,6 +56,7 @@ var (
 	// The app that holds all commands and flags.
 	app = utils.NewApp(gitCommit, gitDate, "the go-ethereum command line interface")
 	// flags that configure the node
+	// 所有可解析变量
 	nodeFlags = []cli.Flag{
 		utils.IdentityFlag,
 		utils.UnlockedAccountFlag,
@@ -192,9 +193,10 @@ var (
 
 func init() {
 	// Initialize the CLI app and start Geth
-	app.Action = geth
+	app.Action = geth      //没执行下面Commands时的程序入口
 	app.HideVersion = true // we have a command to print the version
 	app.Copyright = "Copyright 2013-2019 The go-ethereum Authors"
+	// 可以执行的Commands，不会进入geth程序
 	app.Commands = []cli.Command{
 		// See chaincmd.go:
 		initCommand,
@@ -223,6 +225,7 @@ func init() {
 		// See retesteth.go
 		retestethCommand,
 	}
+	// 命令按照名字排序
 	sort.Sort(cli.CommandsByName(app.Commands))
 
 	app.Flags = append(app.Flags, nodeFlags...)
@@ -232,9 +235,11 @@ func init() {
 	app.Flags = append(app.Flags, whisperFlags...)
 	app.Flags = append(app.Flags, metricsFlags...)
 
+	// 启动之前执行
 	app.Before = func(ctx *cli.Context) error {
 		return debug.Setup(ctx, "")
 	}
+	// 关闭之后执行
 	app.After = func(ctx *cli.Context) error {
 		debug.Exit()
 		console.Stdin.Close() // Resets terminal mode.
@@ -251,8 +256,10 @@ func main() {
 
 // prepare manipulates memory cache allowance and setups metric system.
 // This function should be called before launching devp2p stack.
+// 缓存分配和计量器启动
 func prepare(ctx *cli.Context) {
 	// If we're a full node on mainnet without --cache specified, bump default cache allowance
+	// 根据运行时传入的变量进行缓存相关设置
 	if ctx.GlobalString(utils.SyncModeFlag.Name) != "light" && !ctx.GlobalIsSet(utils.CacheFlag.Name) && !ctx.GlobalIsSet(utils.NetworkIdFlag.Name) {
 		// Make sure we're not on any supported preconfigured testnet either
 		if !ctx.GlobalIsSet(utils.TestnetFlag.Name) && !ctx.GlobalIsSet(utils.RinkebyFlag.Name) && !ctx.GlobalIsSet(utils.GoerliFlag.Name) && !ctx.GlobalIsSet(utils.DeveloperFlag.Name) {
@@ -287,9 +294,11 @@ func prepare(ctx *cli.Context) {
 	godebug.SetGCPercent(int(gogc))
 
 	// Start metrics export if enabled
+	// 启动计量器导出
 	utils.SetupMetrics(ctx)
 
 	// Start system runtime metrics collection
+	// 启动系统级计量器定时收集
 	go metrics.CollectProcessMetrics(3 * time.Second)
 }
 
@@ -300,9 +309,11 @@ func geth(ctx *cli.Context) error {
 	if args := ctx.Args(); len(args) > 0 {
 		return fmt.Errorf("invalid command: %q", args[0])
 	}
+	// 准备环境
 	prepare(ctx)
 	node := makeFullNode(ctx)
 	defer node.Close()
+	// 启动节点
 	startNode(ctx, node)
 	node.Wait()
 	return nil

@@ -28,6 +28,7 @@ import (
 )
 
 // AppHelpTemplate is the test template for the default, global app help topic.
+// help帮助模板
 var AppHelpTemplate = `NAME:
    {{.App.Name}} - {{.App.Usage}}
 
@@ -61,6 +62,7 @@ type flagGroup struct {
 }
 
 // AppHelpFlagGroups is the application flags, grouped by functionality.
+// help命令显示
 var AppHelpFlagGroups = []flagGroup{
 	{
 		Name: "ETHEREUM",
@@ -288,6 +290,7 @@ func flagCategory(flag cli.Flag) string {
 	return "MISC"
 }
 
+// init函数在main之前执行
 func init() {
 	// Override the default app help template
 	cli.AppHelpTemplate = AppHelpTemplate
@@ -317,6 +320,7 @@ func init() {
 			}
 			if len(uncategorized) > 0 {
 				// Append all ungategorized options to the misc group
+				// 把所有未归类的放入misc组
 				miscs := len(AppHelpFlagGroups[len(AppHelpFlagGroups)-1].Flags)
 				AppHelpFlagGroups[len(AppHelpFlagGroups)-1].Flags = append(AppHelpFlagGroups[len(AppHelpFlagGroups)-1].Flags, uncategorized...)
 

@@ -105,8 +105,10 @@ func defaultNodeConfig() node.Config {
 	return cfg
 }
 
+// 根据命令行参数和一些特殊的配置来创建一个node
 func makeConfigNode(ctx *cli.Context) (*node.Node, gethConfig) {
 	// Load defaults.
+	// 加载默认配置
 	cfg := gethConfig{
 		Eth:  eth.DefaultConfig,
 		Shh:  whisper.DefaultConfig,
@@ -114,6 +116,7 @@ func makeConfigNode(ctx *cli.Context) (*node.Node, gethConfig) {
 	}
 
 	// Load config file.
+	// 如果指定配置文件，则从配置文件读取配置
 	if file := ctx.GlobalString(configFileFlag.Name); file != "" {
 		if err := loadConfig(file, &cfg); err != nil {
 			utils.Fatalf("%v", err)
@@ -121,15 +124,19 @@ func makeConfigNode(ctx *cli.Context) (*node.Node, gethConfig) {
 	}
 
 	// Apply flags.
+	// 根据配置创建新节点
 	utils.SetNodeConfig(ctx, &cfg.Node)
 	stack, err := node.New(&cfg.Node)
 	if err != nil {
 		utils.Fatalf("Failed to create the protocol stack: %v", err)
 	}
+	// 应用以太坊配置
 	utils.SetEthConfig(ctx, stack, &cfg.Eth)
+	// 以太坊统计服务
 	if ctx.GlobalIsSet(utils.EthStatsURLFlag.Name) {
 		cfg.Ethstats.URL = ctx.GlobalString(utils.EthStatsURLFlag.Name)
 	}
+	// 应用whisper配置
 	utils.SetShhConfig(ctx, stack, &cfg.Shh)
 
 	return stack, cfg
@@ -146,16 +153,21 @@ func enableWhisper(ctx *cli.Context) bool {
 }
 
 func makeFullNode(ctx *cli.Context) *node.Node {
+	// 根据命令行参数和一些特殊的配置来创建一个node
 	stack, cfg := makeConfigNode(ctx)
+
+	// 是否指定某些升级的高度
 	if ctx.GlobalIsSet(utils.OverrideIstanbulFlag.Name) {
 		cfg.Eth.OverrideIstanbul = new(big.Int).SetUint64(ctx.GlobalUint64(utils.OverrideIstanbulFlag.Name))
 	}
 	if ctx.GlobalIsSet(utils.OverrideMuirGlacierFlag.Name) {
 		cfg.Eth.OverrideMuirGlacier = new(big.Int).SetUint64(ctx.GlobalUint64(utils.OverrideMuirGlacierFlag.Name))
 	}
+	// 为节点注册eth服务
 	utils.RegisterEthService(stack, &cfg.Eth)
 
 	// Whisper must be explicitly enabled by specifying at least 1 whisper flag or in dev mode
+	// 注册whisper服务
 	shhEnabled := enableWhisper(ctx)
 	shhAutoEnabled := !ctx.GlobalIsSet(utils.WhisperEnabledFlag.Name) && ctx.GlobalIsSet(utils.DeveloperFlag.Name)
 	if shhEnabled || shhAutoEnabled {
@@ -171,10 +183,12 @@ func makeFullNode(ctx *cli.Context) *node.Node {
 		utils.RegisterShhService(stack, &cfg.Shh)
 	}
 	// Configure GraphQL if requested
+	// 注册GraphQL定制式查询服务
 	if ctx.GlobalIsSet(utils.GraphQLEnabledFlag.Name) {
 		utils.RegisterGraphQLService(stack, cfg.Node.GraphQLEndpoint(), cfg.Node.GraphQLCors, cfg.Node.GraphQLVirtualHosts, cfg.Node.HTTPTimeouts)
 	}
 	// Add the Ethereum Stats daemon if requested.
+	// 注册以太坊统计服务
 	if cfg.Ethstats.URL != "" {
 		utils.RegisterEthStatsService(stack, cfg.Ethstats.URL)
 	}
