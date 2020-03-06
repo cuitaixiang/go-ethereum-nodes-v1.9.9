@@ -38,6 +38,7 @@ type ChainContext interface {
 // NewEVMContext creates a new context for use in the EVM.
 func NewEVMContext(msg Message, header *types.Header, chain ChainContext, author *common.Address) vm.Context {
 	// If we don't have an explicit author (i.e. not mining), extract from the header
+	// 即coinbase
 	var beneficiary common.Address
 	if author == nil {
 		beneficiary, _ = chain.Engine().Author(header) // Ignore error, we're past header validation
@@ -59,7 +60,9 @@ func NewEVMContext(msg Message, header *types.Header, chain ChainContext, author
 }
 
 // GetHashFn returns a GetHashFunc which retrieves header hashes by number
+// 返回一个通过number检索hash的函数
 func GetHashFn(ref *types.Header, chain ChainContext) func(n uint64) common.Hash {
+	// 作用域延伸
 	var cache map[uint64]common.Hash
 
 	return func(n uint64) common.Hash {
@@ -70,13 +73,15 @@ func GetHashFn(ref *types.Header, chain ChainContext) func(n uint64) common.Hash
 			}
 		}
 		// Try to fulfill the request from the cache
+		// 优先在缓存查找
 		if hash, ok := cache[n]; ok {
 			return hash
 		}
 		// Not cached, iterate the blocks and cache the hashes
 		for header := chain.GetHeader(ref.ParentHash, ref.Number.Uint64()-1); header != nil; header = chain.GetHeader(header.ParentHash, header.Number.Uint64()-1) {
+			// 读入缓存
 			cache[header.Number.Uint64()-1] = header.ParentHash
-			if n == header.Number.Uint64()-1 {
+			if n == header.Number.Uint64()-1 { // 找到则返回
 				return header.ParentHash
 			}
 		}
@@ -86,11 +91,13 @@ func GetHashFn(ref *types.Header, chain ChainContext) func(n uint64) common.Hash
 
 // CanTransfer checks whether there are enough funds in the address' account to make a transfer.
 // This does not take the necessary gas in to account to make the transfer valid.
+// 余额是否足够
 func CanTransfer(db vm.StateDB, addr common.Address, amount *big.Int) bool {
 	return db.GetBalance(addr).Cmp(amount) >= 0
 }
 
 // Transfer subtracts amount from sender and adds amount to recipient using the given Db
+// 转账
 func Transfer(db vm.StateDB, sender, recipient common.Address, amount *big.Int) {
 	db.SubBalance(sender, amount)
 	db.AddBalance(recipient, amount)

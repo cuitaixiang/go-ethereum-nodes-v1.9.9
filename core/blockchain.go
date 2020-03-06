@@ -685,6 +685,7 @@ func (bc *BlockChain) GetBodyRLP(hash common.Hash) rlp.RawValue {
 }
 
 // HasBlock checks if a block is fully present in the database or not.
+// 检查区块是否存在
 func (bc *BlockChain) HasBlock(hash common.Hash, number uint64) bool {
 	if bc.blockCache.Contains(hash) {
 		return true
@@ -704,6 +705,7 @@ func (bc *BlockChain) HasFastBlock(hash common.Hash, number uint64) bool {
 }
 
 // HasState checks if state trie is fully present in the database or not.
+// 对应的状态是否存在
 func (bc *BlockChain) HasState(hash common.Hash) bool {
 	_, err := bc.stateCache.OpenTrie(hash)
 	return err == nil
@@ -711,6 +713,7 @@ func (bc *BlockChain) HasState(hash common.Hash) bool {
 
 // HasBlockAndState checks if a block and associated state trie is fully present
 // in the database or not, caching it if present.
+// 是否区块和对应的状态是否存在，如果存在，放状态缓存
 func (bc *BlockChain) HasBlockAndState(hash common.Hash, number uint64) bool {
 	// Check first that the block itself is known
 	block := bc.GetBlock(hash, number)

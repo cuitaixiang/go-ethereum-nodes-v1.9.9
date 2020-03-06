@@ -582,6 +582,7 @@ type Rules struct {
 }
 
 // Rules ensures c's ChainID is not nil.
+// 返回规则，包含chain id以及支持的分叉
 func (c *ChainConfig) Rules(num *big.Int) Rules {
 	chainID := c.ChainID
 	if chainID == nil {
