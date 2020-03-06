@@ -60,6 +60,7 @@ type HeaderChain struct {
 	tdCache     *lru.Cache // Cache for the most recent block total difficulties
 	numberCache *lru.Cache // Cache for the most recent block numbers
 
+	// 处理中断信号
 	procInterrupt func() bool
 
 	rand   *mrand.Rand
@@ -76,6 +77,7 @@ func NewHeaderChain(chainDb ethdb.Database, config *params.ChainConfig, engine c
 	numberCache, _ := lru.New(numberCacheLimit)
 
 	// Seed a fast but crypto originating random generator
+	// 产生一个随机种子
 	seed, err := crand.Int(crand.Reader, big.NewInt(math.MaxInt64))
 	if err != nil {
 		return nil, err
@@ -92,6 +94,7 @@ func NewHeaderChain(chainDb ethdb.Database, config *params.ChainConfig, engine c
 		engine:        engine,
 	}
 
+	// 设置创世区块头
 	hc.genesisHeader = hc.GetHeaderByNumber(0)
 	if hc.genesisHeader == nil {
 		return nil, ErrNoGenesis
@@ -111,6 +114,7 @@ func NewHeaderChain(chainDb ethdb.Database, config *params.ChainConfig, engine c
 
 // GetBlockNumber retrieves the block number belonging to the given hash
 // from the cache or database
+// 通过number获取hash，优先读缓存
 func (hc *HeaderChain) GetBlockNumber(hash common.Hash) *uint64 {
 	if cached, ok := hc.numberCache.Get(hash); ok {
 		number := cached.(uint64)
@@ -143,21 +147,27 @@ func (hc *HeaderChain) WriteHeader(header *types.Header) (status WriteStatus, er
 	if ptd == nil {
 		return NonStatTy, consensus.ErrUnknownAncestor
 	}
+	// 本地最长链的累计难度值
 	localTd := hc.GetTd(hc.currentHeaderHash, hc.CurrentHeader().Number.Uint64())
+	// 写入header的累计难度值
 	externTd := new(big.Int).Add(header.Difficulty, ptd)
 
 	// Irrelevant of the canonical status, write the td and header to the database
+	// 写入累计难度值
 	if err := hc.WriteTd(hash, number, externTd); err != nil {
 		log.Crit("Failed to write header total difficulty", "err", err)
 	}
+	// 写入header
 	rawdb.WriteHeader(hc.chainDb, header)
 
 	// If the total difficulty is higher than our known, add it to the canonical chain
 	// Second clause in the if statement reduces the vulnerability to selfish mining.
 	// Please refer to http://www.cs.cornell.edu/~ie53/publications/btcProcFC.pdf
 	if externTd.Cmp(localTd) > 0 || (externTd.Cmp(localTd) == 0 && mrand.Float64() < 0.5) {
+		// 累计难度值超过最长链，或者累计难度值与最长链相等，但随机数小于0.5
 		// Delete any canonical number assignments above the new head
 		batch := hc.chainDb.NewBatch()
+		// 删掉高度大于新header的header记录
 		for i := number + 1; ; i++ {
 			hash := rawdb.ReadCanonicalHash(hc.chainDb, i)
 			if hash == (common.Hash{}) {
@@ -173,6 +183,7 @@ func (hc *HeaderChain) WriteHeader(header *types.Header) (status WriteStatus, er
 			headNumber = header.Number.Uint64() - 1
 			headHeader = hc.GetHeader(headHash, headNumber)
 		)
+		// 侧链header替换主链，直至分叉点
 		for rawdb.ReadCanonicalHash(hc.chainDb, headNumber) != headHash {
 			rawdb.WriteCanonicalHash(hc.chainDb, headHash, headNumber)
 
@@ -181,17 +192,21 @@ func (hc *HeaderChain) WriteHeader(header *types.Header) (status WriteStatus, er
 			headHeader = hc.GetHeader(headHash, headNumber)
 		}
 		// Extend the canonical chain with the new header
+		// 写入当前header
 		rawdb.WriteCanonicalHash(hc.chainDb, hash, number)
 		rawdb.WriteHeadHeaderHash(hc.chainDb, hash)
 
+		// 更新当前header
 		hc.currentHeaderHash = hash
 		hc.currentHeader.Store(types.CopyHeader(header))
 		headHeaderGauge.Update(header.Number.Int64())
 
 		status = CanonStatTy
 	} else {
+		// 侧链
 		status = SideStatTy
 	}
+	// 记入缓存
 	hc.headerCache.Add(hash, header)
 	hc.numberCache.Add(hash, number)
 
@@ -205,8 +220,10 @@ func (hc *HeaderChain) WriteHeader(header *types.Header) (status WriteStatus, er
 // header writes should be protected by the parent chain mutex individually.
 type WhCallback func(*types.Header) error
 
+// 验证header链
 func (hc *HeaderChain) ValidateHeaderChain(chain []*types.Header, checkFreq int) (int, error) {
 	// Do a sanity check that the provided chain is actually ordered and linked
+	// 检查连续性
 	for i := 1; i < len(chain); i++ {
 		if chain[i].Number.Uint64() != chain[i-1].Number.Uint64()+1 || chain[i].ParentHash != chain[i-1].Hash() {
 			// Chain broke ancestry, log a message (programming error) and skip insertion
@@ -222,6 +239,7 @@ func (hc *HeaderChain) ValidateHeaderChain(chain []*types.Header, checkFreq int)
 	seals := make([]bool, len(chain))
 	if checkFreq != 0 {
 		// In case of checkFreq == 0 all seals are left false.
+		// 每隔固定长度，随机挑选一个验证
 		for i := 0; i < len(seals)/checkFreq; i++ {
 			index := i*checkFreq + hc.rand.Intn(checkFreq)
 			if index >= len(seals) {
@@ -230,6 +248,7 @@ func (hc *HeaderChain) ValidateHeaderChain(chain []*types.Header, checkFreq int)
 			seals[index] = true
 		}
 		// Last should always be verified to avoid junk.
+		// 最后一个必须验证
 		seals[len(seals)-1] = true
 	}
 
@@ -237,6 +256,7 @@ func (hc *HeaderChain) ValidateHeaderChain(chain []*types.Header, checkFreq int)
 	defer close(abort)
 
 	// Iterate over the headers and ensure they all check out
+	// 等待检查通过
 	for i, header := range chain {
 		// If the chain is terminating, stop processing blocks
 		if hc.procInterrupt() {
@@ -244,6 +264,7 @@ func (hc *HeaderChain) ValidateHeaderChain(chain []*types.Header, checkFreq int)
 			return 0, errors.New("aborted")
 		}
 		// If the header is a banned one, straight out abort
+		// 是否存在被禁的hash
 		if BadHashes[header.Hash()] {
 			return i, ErrBlacklistedHash
 		}
@@ -284,6 +305,7 @@ func (hc *HeaderChain) InsertHeaderChain(chain []*types.Header, writeHeader WhCa
 				continue
 			}
 		}
+		// 没有或者超过最长链，则调用传入的writeheader函数
 		if err := writeHeader(header); err != nil {
 			return i, err
 		}
@@ -309,6 +331,7 @@ func (hc *HeaderChain) InsertHeaderChain(chain []*types.Header, writeHeader WhCa
 
 // GetBlockHashesFromHash retrieves a number of block hashes starting at a given
 // hash, fetching towards the genesis block.
+// 回溯一组hash
 func (hc *HeaderChain) GetBlockHashesFromHash(hash common.Hash, max uint64) []common.Hash {
 	// Get the origin header from which to fetch
 	header := hc.GetHeaderByHash(hash)
@@ -335,6 +358,7 @@ func (hc *HeaderChain) GetBlockHashesFromHash(hash common.Hash, max uint64) []co
 // number of blocks to be individually checked before we reach the canonical chain.
 //
 // Note: ancestor == 0 returns the same block, 1 returns its parent and so on.
+// 返回找到的往前第N个祖先，或者返回最接近的，maxNonCanonical指定非最长链递归查找深度
 func (hc *HeaderChain) GetAncestor(hash common.Hash, number, ancestor uint64, maxNonCanonical *uint64) (common.Hash, uint64) {
 	if ancestor > number {
 		return common.Hash{}, 0
@@ -348,9 +372,10 @@ func (hc *HeaderChain) GetAncestor(hash common.Hash, number, ancestor uint64, ma
 		}
 	}
 	for ancestor != 0 {
+		// 先找最长链
 		if rawdb.ReadCanonicalHash(hc.chainDb, number) == hash {
 			ancestorHash := rawdb.ReadCanonicalHash(hc.chainDb, number-ancestor)
-			if rawdb.ReadCanonicalHash(hc.chainDb, number) == hash {
+			if rawdb.ReadCanonicalHash(hc.chainDb, number) == hash { // 判断两次？
 				number -= ancestor
 				return ancestorHash, number
 			}
@@ -372,6 +397,7 @@ func (hc *HeaderChain) GetAncestor(hash common.Hash, number, ancestor uint64, ma
 
 // GetTd retrieves a block's total difficulty in the canonical chain from the
 // database by hash and number, caching it if found.
+// 获取累计难度值
 func (hc *HeaderChain) GetTd(hash common.Hash, number uint64) *big.Int {
 	// Short circuit if the td's already in the cache, retrieve otherwise
 	if cached, ok := hc.tdCache.Get(hash); ok {
@@ -388,6 +414,7 @@ func (hc *HeaderChain) GetTd(hash common.Hash, number uint64) *big.Int {
 
 // GetTdByHash retrieves a block's total difficulty in the canonical chain from the
 // database by hash, caching it if found.
+// 获取累计难度值
 func (hc *HeaderChain) GetTdByHash(hash common.Hash) *big.Int {
 	number := hc.GetBlockNumber(hash)
 	if number == nil {
@@ -398,6 +425,7 @@ func (hc *HeaderChain) GetTdByHash(hash common.Hash) *big.Int {
 
 // WriteTd stores a block's total difficulty into the database, also caching it
 // along the way.
+// 保存累计难度值
 func (hc *HeaderChain) WriteTd(hash common.Hash, number uint64, td *big.Int) error {
 	rawdb.WriteTd(hc.chainDb, hash, number, td)
 	hc.tdCache.Add(hash, new(big.Int).Set(td))
@@ -406,6 +434,7 @@ func (hc *HeaderChain) WriteTd(hash common.Hash, number uint64, td *big.Int) err
 
 // GetHeader retrieves a block header from the database by hash and number,
 // caching it if found.
+// 获取header，存在则缓存
 func (hc *HeaderChain) GetHeader(hash common.Hash, number uint64) *types.Header {
 	// Short circuit if the header's already in the cache, retrieve otherwise
 	if header, ok := hc.headerCache.Get(hash); ok {
@@ -422,6 +451,7 @@ func (hc *HeaderChain) GetHeader(hash common.Hash, number uint64) *types.Header 
 
 // GetHeaderByHash retrieves a block header from the database by hash, caching it if
 // found.
+// 获取header
 func (hc *HeaderChain) GetHeaderByHash(hash common.Hash) *types.Header {
 	number := hc.GetBlockNumber(hash)
 	if number == nil {
@@ -431,6 +461,7 @@ func (hc *HeaderChain) GetHeaderByHash(hash common.Hash) *types.Header {
 }
 
 // HasHeader checks if a block header is present in the database or not.
+// 是否存在
 func (hc *HeaderChain) HasHeader(hash common.Hash, number uint64) bool {
 	if hc.numberCache.Contains(hash) || hc.headerCache.Contains(hash) {
 		return true
@@ -440,6 +471,7 @@ func (hc *HeaderChain) HasHeader(hash common.Hash, number uint64) bool {
 
 // GetHeaderByNumber retrieves a block header from the database by number,
 // caching it (associated with its hash) if found.
+// 获取主链上header
 func (hc *HeaderChain) GetHeaderByNumber(number uint64) *types.Header {
 	hash := rawdb.ReadCanonicalHash(hc.chainDb, number)
 	if hash == (common.Hash{}) {
@@ -479,12 +511,14 @@ type (
 
 // SetHead rewinds the local chain to a new head. Everything above the new head
 // will be deleted and the new one set.
+// 回滚到某一高度
 func (hc *HeaderChain) SetHead(head uint64, updateFn UpdateHeadBlocksCallback, delFn DeleteBlockContentCallback) {
 	var (
 		parentHash common.Hash
 		batch      = hc.chainDb.NewBatch()
 	)
 	for hdr := hc.CurrentHeader(); hdr != nil && hdr.Number.Uint64() > head; hdr = hc.CurrentHeader() {
+		// 从
 		hash, num := hdr.Hash(), hdr.Number.Uint64()
 
 		// Rewind block chain to new head.
@@ -500,6 +534,7 @@ func (hc *HeaderChain) SetHead(head uint64, updateFn UpdateHeadBlocksCallback, d
 		// first then remove the relative data from the database.
 		//
 		// Update head first(head fast block, head full block) before deleting the data.
+		// 删除之前先更新parent
 		if updateFn != nil {
 			updateFn(hc.chainDb, parent)
 		}
@@ -511,6 +546,7 @@ func (hc *HeaderChain) SetHead(head uint64, updateFn UpdateHeadBlocksCallback, d
 			delFn(batch, hash, num)
 		}
 		// Rewind header chain to new head.
+		// 删除主链最高高度的信息
 		rawdb.DeleteHeader(batch, hash, num)
 		rawdb.DeleteTd(batch, hash, num)
 		rawdb.DeleteCanonicalHash(batch, num)
@@ -522,12 +558,14 @@ func (hc *HeaderChain) SetHead(head uint64, updateFn UpdateHeadBlocksCallback, d
 	batch.Write()
 
 	// Clear out any stale content from the caches
+	// 清空缓存
 	hc.headerCache.Purge()
 	hc.tdCache.Purge()
 	hc.numberCache.Purge()
 }
 
 // SetGenesis sets a new genesis block header for the chain
+// 设置创世区块头
 func (hc *HeaderChain) SetGenesis(head *types.Header) {
 	hc.genesisHeader = head
 }
