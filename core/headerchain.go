@@ -518,7 +518,7 @@ func (hc *HeaderChain) SetHead(head uint64, updateFn UpdateHeadBlocksCallback, d
 		batch      = hc.chainDb.NewBatch()
 	)
 	for hdr := hc.CurrentHeader(); hdr != nil && hdr.Number.Uint64() > head; hdr = hc.CurrentHeader() {
-		// 从
+		// 从大到小回退
 		hash, num := hdr.Hash(), hdr.Number.Uint64()
 
 		// Rewind block chain to new head.
@@ -534,7 +534,7 @@ func (hc *HeaderChain) SetHead(head uint64, updateFn UpdateHeadBlocksCallback, d
 		// first then remove the relative data from the database.
 		//
 		// Update head first(head fast block, head full block) before deleting the data.
-		// 删除之前先更新parent
+		// 删除当前信息之前先更新到parent
 		if updateFn != nil {
 			updateFn(hc.chainDb, parent)
 		}
@@ -546,7 +546,7 @@ func (hc *HeaderChain) SetHead(head uint64, updateFn UpdateHeadBlocksCallback, d
 			delFn(batch, hash, num)
 		}
 		// Rewind header chain to new head.
-		// 删除主链最高高度的信息
+		// 删除主链最高高度的信息:header、累计难度值、主链hash
 		rawdb.DeleteHeader(batch, hash, num)
 		rawdb.DeleteTd(batch, hash, num)
 		rawdb.DeleteCanonicalHash(batch, num)

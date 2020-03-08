@@ -225,6 +225,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 	if err != nil {
 		return nil, err
 	}
+	// 获取创世区块
 	bc.genesisBlock = bc.GetBlockByNumber(0)
 	if bc.genesisBlock == nil {
 		return nil, ErrNoGenesis
@@ -236,6 +237,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 
 	// Initialize the chain with ancient data if it isn't empty.
 	if bc.empty() {
+		// 如果db为空，从数据冷藏室取数据
 		rawdb.InitDatabaseFromFreezer(bc.db)
 	}
 
@@ -245,16 +247,18 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 	// The first thing the node will do is reconstruct the verification data for
 	// the head block (ethash cache or clique voting snapshot). Might as well do
 	// it in advance.
+	// 重构验证数据，并验证当前header
 	bc.engine.VerifyHeader(bc, bc.CurrentHeader(), true)
 
 	if frozen, err := bc.db.Ancients(); err == nil && frozen > 0 {
 		var (
-			needRewind bool
+			needRewind bool // 是否需要倒带，也即发生了冷藏室数据比当前区块还多的情况
 			low        uint64
 		)
 		// The head full block may be rolled back to a very low height due to
 		// blockchain repair. If the head full block is even lower than the ancient
 		// chain, truncate the ancient store.
+		// fast模式一定在full模式之前发生
 		fullBlock := bc.CurrentBlock()
 		if fullBlock != nil && fullBlock != bc.genesisBlock && fullBlock.NumberU64() < frozen-1 {
 			needRewind = true
@@ -273,6 +277,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 		if needRewind {
 			var hashes []common.Hash
 			previous := bc.CurrentHeader().Number.Uint64()
+			// 确定需要倒带的hash
 			for i := low + 1; i <= bc.CurrentHeader().Number.Uint64(); i++ {
 				hashes = append(hashes, rawdb.ReadCanonicalHash(bc.db, i))
 			}
@@ -281,13 +286,13 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 		}
 	}
 	// Check the current state of the block hashes and make sure that we do not have any of the bad blocks in our chain
-	//硬分叉功能使用
+	//硬分叉功能使用，防止使用禁用的区块
 	for hash := range BadHashes {
 		if header := bc.GetHeaderByHash(hash); header != nil {
 			// get the canonical block corresponding to the offending header's number
 			headerByNumber := bc.GetHeaderByNumber(header.Number.Uint64())
 			// make sure the headerByNumber (if present) is in our current canonical chain
-			if headerByNumber != nil && headerByNumber.Hash() == header.Hash() {
+			if headerByNumber != nil && headerByNumber.Hash() == header.Hash() { // 发现则倒回一个区块
 				log.Error("Found bad hash, rewinding chain", "number", header.Number, "hash", header.ParentHash)
 				bc.SetHead(header.Number.Uint64() - 1)
 				log.Error("Chain rewind was successful, resuming normal operation")
@@ -312,8 +317,10 @@ func (bc *BlockChain) GetVMConfig() *vm.Config {
 // Note, it's a special case that we connect a non-empty ancient
 // database with an empty node, so that we can plugin the ancient
 // into node seamlessly.
+// 是否是空链
 func (bc *BlockChain) empty() bool {
 	genesis := bc.genesisBlock.Hash()
+	// 只要主链最新区块hash，主链最新header hash或者fast模式最新区块hash不为空，即非空
 	for _, hash := range []common.Hash{rawdb.ReadHeadBlockHash(bc.db), rawdb.ReadHeadHeaderHash(bc.db), rawdb.ReadHeadFastBlockHash(bc.db)} {
 		if hash != genesis {
 			return false
@@ -326,13 +333,16 @@ func (bc *BlockChain) empty() bool {
 // assumes that the chain manager mutex is held.
 func (bc *BlockChain) loadLastState() error {
 	// Restore the last known head block
+	// 取最新的区块hash
 	head := rawdb.ReadHeadBlockHash(bc.db)
 	if head == (common.Hash{}) {
 		// Corrupt or empty database, init from scratch
 		log.Warn("Empty database, resetting chain")
+		// 链重置
 		return bc.Reset()
 	}
 	// Make sure the entire head block is available
+	// 获取最新的区块
 	currentBlock := bc.GetBlockByHash(head)
 	if currentBlock == nil {
 		// Corrupt or empty database, init from scratch
@@ -340,19 +350,23 @@ func (bc *BlockChain) loadLastState() error {
 		return bc.Reset()
 	}
 	// Make sure the state associated with the block is available
+	// 加载最好的state
 	if _, err := state.New(currentBlock.Root(), bc.stateCache); err != nil {
 		// Dangling block without a state associated, init from scratch
 		log.Warn("Head state missing, repairing chain", "number", currentBlock.Number(), "hash", currentBlock.Hash())
 		if err := bc.repair(&currentBlock); err != nil {
 			return err
 		}
+		// 记录修复使用的最新哈希
 		rawdb.WriteHeadBlockHash(bc.db, currentBlock.Hash())
 	}
 	// Everything seems to be fine, set as the head block
+	// 记录当前区块
 	bc.currentBlock.Store(currentBlock)
 	headBlockGauge.Update(int64(currentBlock.NumberU64()))
 
 	// Restore the last known head header
+	// 恢复设置最新header，可能比当前区块高
 	currentHeader := currentBlock.Header()
 	if head := rawdb.ReadHeadHeaderHash(bc.db); head != (common.Hash{}) {
 		if header := bc.GetHeaderByHash(head); header != nil {
@@ -362,6 +376,7 @@ func (bc *BlockChain) loadLastState() error {
 	bc.hc.SetCurrentHeader(currentHeader)
 
 	// Restore the last known head fast block
+	// 恢复设置fast区块
 	bc.currentFastBlock.Store(currentBlock)
 	headFastBlockGauge.Update(int64(currentBlock.NumberU64()))
 
@@ -374,6 +389,7 @@ func (bc *BlockChain) loadLastState() error {
 	// Issue a status log for the user
 	currentFastBlock := bc.CurrentFastBlock()
 
+	// 获取相应的累计难度值作为日志
 	headerTd := bc.GetTd(currentHeader.Hash(), currentHeader.Number.Uint64())
 	blockTd := bc.GetTd(currentBlock.Hash(), currentBlock.NumberU64())
 	fastTd := bc.GetTd(currentFastBlock.Hash(), currentFastBlock.NumberU64())
@@ -389,29 +405,35 @@ func (bc *BlockChain) loadLastState() error {
 // above the new head will be deleted and the new one set. In the case of blocks
 // though, the head may be further rewound if block bodies are missing (non-archive
 // nodes after a fast sync).
+// 倒回到某一高度
 func (bc *BlockChain) SetHead(head uint64) error {
 	log.Warn("Rewinding blockchain", "target", head)
 
 	bc.chainmu.Lock()
 	defer bc.chainmu.Unlock()
 
+	// 更新到给定的header状态
 	updateFn := func(db ethdb.KeyValueWriter, header *types.Header) {
 		// Rewind the block chain, ensuring we don't end up with a stateless head block
 		if currentBlock := bc.CurrentBlock(); currentBlock != nil && header.Number.Uint64() < currentBlock.NumberU64() {
+			// 传入的header比当前区块小
 			newHeadBlock := bc.GetBlock(header.Hash(), header.Number.Uint64())
 			if newHeadBlock == nil {
 				newHeadBlock = bc.genesisBlock
 			} else {
+				// 调整state db入口
 				if _, err := state.New(newHeadBlock.Root(), bc.stateCache); err != nil {
 					// Rewound state missing, rolled back to before pivot, reset to genesis
 					newHeadBlock = bc.genesisBlock
 				}
 			}
+			// 更新主链头hash已经当前区块
 			rawdb.WriteHeadBlockHash(db, newHeadBlock.Hash())
 			bc.currentBlock.Store(newHeadBlock)
 			headBlockGauge.Update(int64(newHeadBlock.NumberU64()))
 		}
 
+		// fast模式同理
 		// Rewind the fast block in a simpleton way to the target head
 		if currentFastBlock := bc.CurrentFastBlock(); currentFastBlock != nil && header.Number.Uint64() < currentFastBlock.NumberU64() {
 			newHeadFastBlock := bc.GetBlock(header.Hash(), header.Number.Uint64())
@@ -426,22 +448,25 @@ func (bc *BlockChain) SetHead(head uint64) error {
 	}
 
 	// Rewind the header chain, deleting all block bodies until then
+	// 删除某一区块相应的状态
 	delFn := func(db ethdb.KeyValueWriter, hash common.Hash, num uint64) {
 		// Ignore the error here since light client won't hit this path
 		frozen, _ := bc.db.Ancients()
-		if num+1 <= frozen {
+		if num+1 <= frozen { // 判断是否需要删冷藏室的数据
 			// Truncate all relative data(header, total difficulty, body, receipt
 			// and canonical hash) from ancient store.
+			// 删减只保留前num+1个
 			if err := bc.db.TruncateAncients(num + 1); err != nil {
 				log.Crit("Failed to truncate ancient data", "number", num, "err", err)
 			}
 
 			// Remove the hash <-> number mapping from the active store.
 			rawdb.DeleteHeaderNumber(db, hash)
-		} else {
+		} else { // 删热数据
 			// Remove relative body and receipts from the active store.
 			// The header, total difficulty and canonical hash will be
 			// removed in the hc.SetHead function.
+			// 移除body和receipt，header、累计难度值和主链哈希会在header chain的SetHead中处理
 			rawdb.DeleteBody(db, hash, num)
 			rawdb.DeleteReceipts(db, hash, num)
 		}
@@ -450,6 +475,7 @@ func (bc *BlockChain) SetHead(head uint64) error {
 	bc.hc.SetHead(head, updateFn, delFn)
 
 	// Clear out any stale content from the caches
+	// 清理缓存
 	bc.bodyCache.Purge()
 	bc.bodyRLPCache.Purge()
 	bc.receiptsCache.Purge()
@@ -524,12 +550,14 @@ func (bc *BlockChain) StateCache() state.Database {
 }
 
 // Reset purges the entire blockchain, restoring it to its genesis state.
+// 重置链，恢复到创世状态
 func (bc *BlockChain) Reset() error {
 	return bc.ResetWithGenesisBlock(bc.genesisBlock)
 }
 
 // ResetWithGenesisBlock purges the entire blockchain, restoring it to the
 // specified genesis state.
+// 重置链的状态至给定的创世区块
 func (bc *BlockChain) ResetWithGenesisBlock(genesis *types.Block) error {
 	// Dump the entire block chain and purge the caches
 	if err := bc.SetHead(0); err != nil {
@@ -539,11 +567,13 @@ func (bc *BlockChain) ResetWithGenesisBlock(genesis *types.Block) error {
 	defer bc.chainmu.Unlock()
 
 	// Prepare the genesis block and reinitialise the chain
+	// 记录创世区块以及累计难度
 	if err := bc.hc.WriteTd(genesis.Hash(), genesis.NumberU64(), genesis.Difficulty()); err != nil {
 		log.Crit("Failed to write genesis block TD", "err", err)
 	}
 	rawdb.WriteBlock(bc.db, genesis)
 
+	// 写入当前链的信息
 	bc.genesisBlock = genesis
 	bc.insert(bc.genesisBlock)
 	bc.currentBlock.Store(bc.genesisBlock)
@@ -563,6 +593,7 @@ func (bc *BlockChain) ResetWithGenesisBlock(genesis *types.Block) error {
 //
 // This method only rolls back the current block. The current header and current
 // fast block are left intact.
+// 加载最近一个状态完好的区块状态
 func (bc *BlockChain) repair(head **types.Block) error {
 	for {
 		// Abort if we've rewound to a head block that does have associated state
@@ -888,6 +919,7 @@ func (bc *BlockChain) Rollback(chain []common.Hash) {
 	for i := len(chain) - 1; i >= 0; i-- {
 		hash := chain[i]
 
+		// 哈希匹配则回退
 		currentHeader := bc.hc.CurrentHeader()
 		if currentHeader.Hash() == hash {
 			bc.hc.SetCurrentHeader(bc.GetHeader(currentHeader.ParentHash, currentHeader.Number.Uint64()-1))
@@ -910,6 +942,7 @@ func (bc *BlockChain) Rollback(chain []common.Hash) {
 	// Notably, it can happen that system crashes without truncating the ancient data
 	// but the head indicator has been updated in the active store. Regarding this issue,
 	// system will self recovery by truncating the extra data during the setup phase.
+	// 对比当前header个数还多的冷数据进行清理
 	if err := bc.truncateAncient(bc.hc.CurrentHeader().Number.Uint64()); err != nil {
 		log.Crit("Truncate ancient store failed", "err", err)
 	}
@@ -917,6 +950,7 @@ func (bc *BlockChain) Rollback(chain []common.Hash) {
 
 // truncateAncient rewinds the blockchain to the specified header and deletes all
 // data in the ancient store that exceeds the specified header.
+// 删减保留前N项冷数据，并清理缓存
 func (bc *BlockChain) truncateAncient(head uint64) error {
 	frozen, err := bc.db.Ancients()
 	if err != nil {

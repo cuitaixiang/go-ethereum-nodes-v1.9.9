@@ -26,6 +26,7 @@ import (
 )
 
 // insertStats tracks and reports on block insertion.
+// 跟踪报告区块的插入情况
 type insertStats struct {
 	queued, processed, ignored int
 	usedGas                    uint64
@@ -46,6 +47,7 @@ func (st *insertStats) report(chain []*types.Block, index int, dirty common.Stor
 		elapsed = time.Duration(now) - time.Duration(st.startTime)
 	)
 	// If we're at the last block of the batch or report period reached, log
+	// 最后一个或者时间间隔到了报告一次
 	if index == len(chain)-1 || elapsed >= statsReportLimit {
 		// Count the number of transactions in this segment
 		var txs int
@@ -79,6 +81,7 @@ func (st *insertStats) report(chain []*types.Block, index int, dirty common.Stor
 }
 
 // insertIterator is a helper to assist during chain import.
+// 迭代器
 type insertIterator struct {
 	chain types.Blocks // Chain of blocks being iterated over
 
@@ -103,6 +106,7 @@ func newInsertIterator(chain types.Blocks, results <-chan error, validator Valid
 
 // next returns the next block in the iterator, along with any potential validation
 // error for that block. When the end is reached, it will return (nil, nil).
+// 移到下一个
 func (it *insertIterator) next() (*types.Block, error) {
 	// If we reached the end of the chain, abort
 	if it.index+1 >= len(it.chain) {
@@ -126,6 +130,7 @@ func (it *insertIterator) next() (*types.Block, error) {
 //
 // Both header and body validation errors (nil too) is cached into the iterator
 // to avoid duplicating work on the following next() call.
+// 返回下一个（不移动指针）
 func (it *insertIterator) peek() (*types.Block, error) {
 	// If we reached the end of the chain, abort
 	if it.index+1 >= len(it.chain) {
@@ -143,6 +148,7 @@ func (it *insertIterator) peek() (*types.Block, error) {
 }
 
 // previous returns the previous header that was being processed, or nil.
+// 前一个
 func (it *insertIterator) previous() *types.Header {
 	if it.index < 1 {
 		return nil
@@ -151,16 +157,19 @@ func (it *insertIterator) previous() *types.Header {
 }
 
 // first returns the first block in the it.
+// 第一个区块
 func (it *insertIterator) first() *types.Block {
 	return it.chain[0]
 }
 
 // remaining returns the number of remaining blocks.
+// 剩余数量
 func (it *insertIterator) remaining() int {
 	return len(it.chain) - it.index
 }
 
 // processed returns the number of processed blocks.
+// 已处理数量
 func (it *insertIterator) processed() int {
 	return it.index + 1
 }
