@@ -20,6 +20,7 @@ import "errors"
 
 var (
 	// ErrKnownBlock is returned when a block to import is already known locally.
+	// 所谓的已知区块，是之前已经被处理过，本地有相应的状态
 	ErrKnownBlock = errors.New("block already known")
 
 	// ErrGasLimitReached is returned by the gas pool if the amount of gas required

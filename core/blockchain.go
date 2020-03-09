@@ -145,7 +145,7 @@ type BlockChain struct {
 	chainSideFeed event.Feed
 	chainHeadFeed event.Feed
 	logsFeed      event.Feed
-	blockProcFeed event.Feed
+	blockProcFeed event.Feed // 是否在处理区块
 	scope         event.SubscriptionScope
 	genesisBlock  *types.Block
 
@@ -160,7 +160,8 @@ type BlockChain struct {
 	receiptsCache *lru.Cache     // Cache for the most recent receipts per block
 	blockCache    *lru.Cache     // Cache for the most recent entire blocks
 	txLookupCache *lru.Cache     // Cache for the most recent transaction lookup data.
-	futureBlocks  *lru.Cache     // future blocks are blocks added for later processing
+	// 待处理的区块
+	futureBlocks *lru.Cache // future blocks are blocks added for later processing
 
 	quit    chan struct{} // blockchain quit channel
 	running int32         // running must be called atomically
@@ -281,6 +282,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 			for i := low + 1; i <= bc.CurrentHeader().Number.Uint64(); i++ {
 				hashes = append(hashes, rawdb.ReadCanonicalHash(bc.db, i))
 			}
+			// 回退
 			bc.Rollback(hashes)
 			log.Warn("Truncate ancient chain", "from", previous, "to", low)
 		}
@@ -884,6 +886,7 @@ func (bc *BlockChain) Stop() {
 }
 
 func (bc *BlockChain) procFutureBlocks() {
+	// 待处理区块转入缓存腾地方
 	blocks := make([]*types.Block, 0, bc.futureBlocks.Len())
 	for _, hash := range bc.futureBlocks.Keys() {
 		if block, exist := bc.futureBlocks.Peek(hash); exist {
@@ -891,10 +894,12 @@ func (bc *BlockChain) procFutureBlocks() {
 		}
 	}
 	if len(blocks) > 0 {
+		// 按照高度排序
 		sort.Slice(blocks, func(i, j int) bool {
 			return blocks[i].NumberU64() < blocks[j].NumberU64()
 		})
 		// Insert one by one as chain insertion needs contiguous ancestry between blocks
+		// 按序插入
 		for i := range blocks {
 			bc.InsertChain(blocks[i : i+1])
 		}
@@ -1279,18 +1284,20 @@ func (bc *BlockChain) writeBlockWithoutState(block *types.Block, td *big.Int) (e
 
 // writeKnownBlock updates the head block flag with a known block
 // and introduces chain reorg if necessary.
+// 记录已知的区块，链可能需要重组
 func (bc *BlockChain) writeKnownBlock(block *types.Block) error {
 	bc.wg.Add(1)
 	defer bc.wg.Done()
 
 	current := bc.CurrentBlock()
-	if block.ParentHash() != current.Hash() {
+	if block.ParentHash() != current.Hash() { // 接不上当前主链，两个区块可能是不同链上的
 		if err := bc.reorg(current, block); err != nil {
 			return err
 		}
 	}
 	// Write the positional metadata for transaction/receipt lookups.
 	// Preimages here is empty, ignore it.
+	// 写入交易查询项
 	rawdb.WriteTxLookupEntries(bc.db, block)
 
 	bc.insert(block)
@@ -1470,6 +1477,7 @@ func (bc *BlockChain) addFutureBlock(block *types.Block) error {
 // wrong.
 //
 // After insertion is done, all accumulated events will be fired.
+// 批量插入区块
 func (bc *BlockChain) InsertChain(chain types.Blocks) (int, error) {
 	// Sanity check that we have something meaningful to import
 	if len(chain) == 0 {
@@ -1484,6 +1492,7 @@ func (bc *BlockChain) InsertChain(chain types.Blocks) (int, error) {
 		block, prev *types.Block
 	)
 	// Do a sanity check that the provided chain is actually ordered and linked
+	// 连续性检查
 	for i := 1; i < len(chain); i++ {
 		block = chain[i]
 		prev = chain[i-1]
@@ -1536,10 +1545,12 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 	headers := make([]*types.Header, len(chain))
 	seals := make([]bool, len(chain))
 
+	// 提取header与是否验证标志
 	for i, block := range chain {
 		headers[i] = block.Header()
 		seals[i] = verifySeals
 	}
+	// 验证header
 	abort, results := bc.engine.VerifyHeaders(bc, headers, seals)
 	defer close(abort)
 
@@ -1556,13 +1567,16 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		// 	    from the canonical chain, which has not been verified.
 		// Skip all known blocks that are behind us
 		var (
-			current  = bc.CurrentBlock()
-			localTd  = bc.GetTd(current.Hash(), current.NumberU64())
+			current = bc.CurrentBlock()
+			// 主链当前累计难度值
+			localTd = bc.GetTd(current.Hash(), current.NumberU64())
+			// 要导入上一个区块的累计难度值
 			externTd = bc.GetTd(block.ParentHash(), block.NumberU64()-1) // The first block can't be nil
 		)
+		// 先检查之前导入过的区块
 		for block != nil && err == ErrKnownBlock {
 			externTd = new(big.Int).Add(externTd, block.Difficulty())
-			if localTd.Cmp(externTd) < 0 {
+			if localTd.Cmp(externTd) < 0 { // 超过主链累计难度值，说明需要切换主链
 				break
 			}
 			log.Debug("Ignoring already known block", "number", block.Number(), "hash", block.Hash())
@@ -1570,6 +1584,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 
 			block, err = it.next()
 		}
+		// 走到这里有两种可能：1、之前导入过的链累计难度值超过当前主链，需要切换；2、剩下未导入过的区块等待导入
 		// The remaining blocks are still known blocks, the only scenario here is:
 		// During the fast sync, the pivot point is already submitted but rollback
 		// happens. Then node resets the head full block to a lower height via `rollback`
@@ -1578,11 +1593,12 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		// When node runs a fast sync again, it can re-import a batch of known blocks via
 		// `insertChain` while a part of them have higher total difficulty than current
 		// head full block(new pivot point).
-		for block != nil && err == ErrKnownBlock {
+		for block != nil && err == ErrKnownBlock { // 处理之前导入过，累计难度值超过当前链的链上的区块
 			log.Debug("Writing previously known block", "number", block.Number(), "hash", block.Hash())
 			if err := bc.writeKnownBlock(block); err != nil {
 				return it.index, err
 			}
+			// 记录最后一个已知处理过的区块
 			lastCanon = block
 
 			block, err = it.next()
@@ -1909,6 +1925,7 @@ func (bc *BlockChain) insertSideChain(block *types.Block, it *insertIterator) (i
 // reorg takes two blocks, an old chain and a new chain and will reconstruct the
 // blocks and inserts them to be part of the new canonical chain and accumulates
 // potential missing transactions and post an event about them.
+// 链重组
 func (bc *BlockChain) reorg(oldBlock, newBlock *types.Block) error {
 	var (
 		newChain    types.Blocks

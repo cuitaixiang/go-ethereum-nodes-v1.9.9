@@ -106,7 +106,7 @@ func newInsertIterator(chain types.Blocks, results <-chan error, validator Valid
 
 // next returns the next block in the iterator, along with any potential validation
 // error for that block. When the end is reached, it will return (nil, nil).
-// 移到下一个
+// 移到下一个，并验证body
 func (it *insertIterator) next() (*types.Block, error) {
 	// If we reached the end of the chain, abort
 	if it.index+1 >= len(it.chain) {
