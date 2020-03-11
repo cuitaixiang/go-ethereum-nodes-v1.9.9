@@ -54,6 +54,7 @@ type Log struct {
 
 	// The Removed field is true if this log was reverted due to a chain reorganisation.
 	// You must pay attention to this field if you receive logs through a filter query.
+	// 是否被回滚标志
 	Removed bool `json:"removed"`
 }
 

@@ -136,6 +136,7 @@ func (hc *HeaderChain) GetBlockNumber(hash common.Hash) *uint64 {
 // without the real blocks. Hence, writing headers directly should only be done
 // in two scenarios: pure-header mode of operation (light clients), or properly
 // separated header/block phases (non-archive clients).
+// 写header到本地链
 func (hc *HeaderChain) WriteHeader(header *types.Header) (status WriteStatus, err error) {
 	// Cache some values to prevent constant recalculation
 	var (
@@ -252,6 +253,7 @@ func (hc *HeaderChain) ValidateHeaderChain(chain []*types.Header, checkFreq int)
 		seals[len(seals)-1] = true
 	}
 
+	// 从共识层面验证header
 	abort, results := hc.engine.VerifyHeaders(hc, chain, seals)
 	defer close(abort)
 
@@ -285,12 +287,14 @@ func (hc *HeaderChain) ValidateHeaderChain(chain []*types.Header, checkFreq int)
 // should be done or not. The reason behind the optional check is because some
 // of the header retrieval mechanisms already need to verfy nonces, as well as
 // because nonces can be verified sparsely, not needing to check each.
+// 插入本地链
 func (hc *HeaderChain) InsertHeaderChain(chain []*types.Header, writeHeader WhCallback, start time.Time) (int, error) {
 	// Collect some import statistics to report on
 	stats := struct{ processed, ignored int }{}
 	// All headers passed verification, import them into the database
 	for i, header := range chain {
 		// Short circuit insertion if shutting down
+		// 是否中断
 		if hc.procInterrupt() {
 			log.Debug("Premature abort during headers import")
 			return i, errors.New("aborted")
@@ -305,7 +309,7 @@ func (hc *HeaderChain) InsertHeaderChain(chain []*types.Header, writeHeader WhCa
 				continue
 			}
 		}
-		// 没有或者超过最长链，则调用传入的writeheader函数
+		// 没有该header或者累计难度值超过最长链，则调用传入的writeheader函数写入header
 		if err := writeHeader(header); err != nil {
 			return i, err
 		}

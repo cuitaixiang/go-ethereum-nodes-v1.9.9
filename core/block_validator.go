@@ -51,7 +51,7 @@ func NewBlockValidator(config *params.ChainConfig, blockchain *BlockChain, engin
 // 验证body
 func (v *BlockValidator) ValidateBody(block *types.Block) error {
 	// Check whether the block's known, and if not, that it's linkable
-	// 是否是已知区块
+	// 是否是已知区块，需要有区块和状态数据
 	if v.bc.HasBlockAndState(block.Hash(), block.NumberU64()) {
 		return ErrKnownBlock
 	}
@@ -69,13 +69,13 @@ func (v *BlockValidator) ValidateBody(block *types.Block) error {
 	if hash := types.DeriveSha(block.Transactions()); hash != header.TxHash {
 		return fmt.Errorf("transaction root hash mismatch: have %x, want %x", hash, header.TxHash)
 	}
-	// 父区块是否存在，状态是否被修剪
+	// 父区块以及其状态数据是否存在
 	if !v.bc.HasBlockAndState(block.ParentHash(), block.NumberU64()-1) {
 		//父区块不存在
 		if !v.bc.HasBlock(block.ParentHash(), block.NumberU64()-1) {
 			return consensus.ErrUnknownAncestor
 		}
-		// 父区块存在，但状态被修剪
+		// 父区块存在，但父区块的状态数据不存在
 		return consensus.ErrPrunedAncestor
 	}
 	return nil

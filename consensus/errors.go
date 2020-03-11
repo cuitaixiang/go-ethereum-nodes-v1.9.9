@@ -25,10 +25,12 @@ var (
 
 	// ErrPrunedAncestor is returned when validating a block requires an ancestor
 	// that is known, but the state of which is not available.
+	// 父区块存在，但是父区块的状态数据不存在
 	ErrPrunedAncestor = errors.New("pruned ancestor")
 
 	// ErrFutureBlock is returned when a block's timestamp is in the future according
 	// to the current node.
+	// 区块的时间戳在未来
 	ErrFutureBlock = errors.New("block in the future")
 
 	// ErrInvalidNumber is returned if a block's number doesn't equal its parent's
