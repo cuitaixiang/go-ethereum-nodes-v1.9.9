@@ -50,12 +50,16 @@ import (
 	cli "gopkg.in/urfave/cli.v1"
 )
 
+// 递归自测网络模式：使用内存数据库，无网络，只有rpc接口
+
 var (
+	// 运行参数
 	rpcPortFlag = cli.IntFlag{
 		Name:  "rpcport",
 		Usage: "HTTP-RPC server listening port",
 		Value: node.DefaultHTTPPort,
 	}
+	// 命令
 	retestethCommand = cli.Command{
 		Action:      utils.MigrateFlags(retesteth),
 		Name:        "retesteth",
@@ -67,6 +71,7 @@ var (
 	}
 )
 
+// 测试相关api
 type RetestethTestAPI interface {
 	SetChainParams(ctx context.Context, chainParams ChainParams) (bool, error)
 	MineBlocks(ctx context.Context, number uint64) (bool, error)
@@ -76,6 +81,7 @@ type RetestethTestAPI interface {
 	GetLogHash(ctx context.Context, txHash common.Hash) (common.Hash, error)
 }
 
+// eth相关api
 type RetestethEthAPI interface {
 	SendRawTransaction(ctx context.Context, rawTx hexutil.Bytes) (common.Hash, error)
 	BlockNumber(ctx context.Context) (uint64, error)
@@ -85,6 +91,7 @@ type RetestethEthAPI interface {
 	GetTransactionCount(ctx context.Context, address common.Address, blockNr math.HexOrDecimal64) (uint64, error)
 }
 
+// debug相关api
 type RetestethDebugAPI interface {
 	AccountRange(ctx context.Context,
 		blockHashOrNumber *math.HexOrDecimal256, txIndex uint64,
@@ -97,20 +104,22 @@ type RetestethDebugAPI interface {
 	) (StorageRangeResult, error)
 }
 
+// web3相关api
 type RetestWeb3API interface {
 	ClientVersion(ctx context.Context) (string, error)
 }
 
 type RetestethAPI struct {
-	ethDb         ethdb.Database
-	db            state.Database
-	chainConfig   *params.ChainConfig
-	author        common.Address
-	extraData     []byte
-	genesisHash   common.Hash
-	engine        *NoRewardEngine
-	blockchain    *core.BlockChain
-	blockNumber   uint64
+	ethDb       ethdb.Database
+	db          state.Database
+	chainConfig *params.ChainConfig
+	author      common.Address
+	extraData   []byte
+	genesisHash common.Hash
+	engine      *NoRewardEngine
+	blockchain  *core.BlockChain
+	blockNumber uint64
+	// 交易池
 	txMap         map[common.Address]map[uint64]*types.Transaction // Sender -> Nonce -> Transaction
 	txSenders     map[common.Address]struct{}                      // Set of transaction senders
 	blockInterval uint64
