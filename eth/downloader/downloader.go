@@ -100,6 +100,7 @@ type Downloader struct {
 	rttEstimate   uint64 // Round trip time to target for download requests
 	rttConfidence uint64 // Confidence in the estimated RTT (unit: millionths to allow atomic ops)
 
+	// 同步模式
 	mode SyncMode       // Synchronisation mode defining the strategy used (per sync cycle)
 	mux  *event.TypeMux // Event multiplexer to announce sync operation events
 
@@ -319,6 +320,7 @@ func (d *Downloader) UnregisterPeer(id string) error {
 
 // Synchronise tries to sync up our local block chain with a remote peer, both
 // adding various sanity checks as well as wrapping it with various log entries.
+// 链同步
 func (d *Downloader) Synchronise(id string, head common.Hash, td *big.Int, mode SyncMode) error {
 	err := d.synchronise(id, head, td, mode)
 	switch err {
@@ -1699,6 +1701,7 @@ func (d *Downloader) commitFastSyncData(results []*fetchResult, stateSync *state
 	)
 	blocks := make([]*types.Block, len(results))
 	receipts := make([]types.Receipts, len(results))
+	// 获取结果组合成区块与收据
 	for i, result := range results {
 		blocks[i] = types.NewBlockWithHeader(result.Header).WithBody(result.Transactions, result.Uncles)
 		receipts[i] = result.Receipts

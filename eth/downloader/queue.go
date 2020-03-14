@@ -53,14 +53,20 @@ type fetchRequest struct {
 
 // fetchResult is a struct collecting partial results from data fetchers until
 // all outstanding pieces complete and the result as a whole can be processed.
+// 获取的结果
 type fetchResult struct {
-	Pending int         // Number of data fetches still pending
-	Hash    common.Hash // Hash of the header to prevent recalculating
+	Pending int // Number of data fetches still pending
+	// 获取的哈希
+	Hash common.Hash // Hash of the header to prevent recalculating
 
-	Header       *types.Header
-	Uncles       []*types.Header
+	// 获取的区块头
+	Header *types.Header
+	// 获取的叔块
+	Uncles []*types.Header
+	// 获取的交易
 	Transactions types.Transactions
-	Receipts     types.Receipts
+	// 获取的收据
+	Receipts types.Receipts
 }
 
 // queue represents hashes that are either need fetching or are being fetched
