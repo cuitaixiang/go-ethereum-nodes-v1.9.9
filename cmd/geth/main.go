@@ -337,6 +337,7 @@ func startNode(ctx *cli.Context, stack *node.Node) {
 	stack.AccountManager().Subscribe(events)
 
 	// Create a client to interact with local geth node.
+	// 创建一个RPC客户端，和本地geth节点交互
 	rpcClient, err := stack.Attach()
 	if err != nil {
 		utils.Fatalf("Failed to attach to self: %v", err)

@@ -306,21 +306,23 @@ func init() {
 	cli.HelpPrinter = func(w io.Writer, tmpl string, data interface{}) {
 		if tmpl == AppHelpTemplate {
 			// Iterate over all the flags and add any uncategorized ones
+			// 填充分类标签
 			categorized := make(map[string]struct{})
 			for _, group := range AppHelpFlagGroups {
 				for _, flag := range group.Flags {
 					categorized[flag.String()] = struct{}{}
 				}
 			}
+			// 遍历flag里面所有的配置项，看是否在分类标签里面，不在的选出来
 			var uncategorized []cli.Flag
 			for _, flag := range data.(*cli.App).Flags {
 				if _, ok := categorized[flag.String()]; !ok {
 					uncategorized = append(uncategorized, flag)
 				}
 			}
+			// 把所有未归类的放入misc组
 			if len(uncategorized) > 0 {
 				// Append all ungategorized options to the misc group
-				// 把所有未归类的放入misc组
 				miscs := len(AppHelpFlagGroups[len(AppHelpFlagGroups)-1].Flags)
 				AppHelpFlagGroups[len(AppHelpFlagGroups)-1].Flags = append(AppHelpFlagGroups[len(AppHelpFlagGroups)-1].Flags, uncategorized...)
 

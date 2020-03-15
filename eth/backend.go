@@ -63,6 +63,7 @@ type LesServer interface {
 }
 
 // Ethereum implements the Ethereum full node service.
+// 以太坊全节点服务
 type Ethereum struct {
 	config *Config
 
@@ -97,6 +98,7 @@ type Ethereum struct {
 	lock sync.RWMutex // Protects the variadic fields (e.g. gas price and etherbase)
 }
 
+// 添加轻节点服务器
 func (s *Ethereum) AddLesServer(ls LesServer) {
 	s.lesServer = ls
 	ls.SetBloomBitsIndexer(s.bloomIndexer)

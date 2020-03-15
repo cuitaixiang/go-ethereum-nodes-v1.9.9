@@ -267,7 +267,7 @@ var (
 		Usage: "Maximum number of light clients to serve, or light servers to attach to  (deprecated, use --light.maxpeers)",
 		Value: eth.DefaultConfig.LightPeers,
 	}
-	LightMaxPeersFlag = cli.IntFlag{
+	LightMaxPeersFlag = cli.IntFlag{ // 复用参数：最多服务的轻节点数量或者同时使用最多的轻节点服务器数量
 		Name:  "light.maxpeers",
 		Usage: "Maximum number of light clients to serve, or light servers to attach to",
 		Value: eth.DefaultConfig.LightPeers,
@@ -1104,36 +1104,45 @@ func SetP2PConfig(ctx *cli.Context, cfg *p2p.Config) {
 	setBootstrapNodes(ctx, cfg)
 	setBootstrapNodesV5(ctx, cfg)
 
+	// 是否轻节点客户端模式
 	lightClient := ctx.GlobalString(SyncModeFlag.Name) == "light"
+	// 是否提供轻节点服务器
 	lightServer := (ctx.GlobalInt(LightLegacyServFlag.Name) != 0 || ctx.GlobalInt(LightServeFlag.Name) != 0)
 
+	// 复用参数：提供轻节点服务的数量，或者轻节点连接提供轻节点服务的节点数量
 	lightPeers := ctx.GlobalInt(LightLegacyPeersFlag.Name)
 	if ctx.GlobalIsSet(LightMaxPeersFlag.Name) {
 		lightPeers = ctx.GlobalInt(LightMaxPeersFlag.Name)
 	}
+	// 轻节点模式默认使用默认值得1/10，使得提供轻节点查询服务的默认情况下10倍于轻节点数量
 	if lightClient && !ctx.GlobalIsSet(LightLegacyPeersFlag.Name) && !ctx.GlobalIsSet(LightMaxPeersFlag.Name) {
 		// dynamic default - for clients we use 1/10th of the default for servers
 		lightPeers /= 10
 	}
 
-	if ctx.GlobalIsSet(MaxPeersFlag.Name) {
+	if ctx.GlobalIsSet(MaxPeersFlag.Name) { // 如果配置最大peer数量
 		cfg.MaxPeers = ctx.GlobalInt(MaxPeersFlag.Name)
+		// 如果提供轻节点查询服务，最大节点数量加上轻节点允许连接的数量
 		if lightServer && !ctx.GlobalIsSet(LightLegacyPeersFlag.Name) && !ctx.GlobalIsSet(LightMaxPeersFlag.Name) {
 			cfg.MaxPeers += lightPeers
 		}
-	} else {
+	} else { // 未配置，则使用默认值
+		// 轻节点服务器，加上轻节点数量
 		if lightServer {
 			cfg.MaxPeers += lightPeers
 		}
+		// 轻节点即为最大请求服务的节点数量
 		if lightClient && (ctx.GlobalIsSet(LightLegacyPeersFlag.Name) || ctx.GlobalIsSet(LightMaxPeersFlag.Name)) && cfg.MaxPeers < lightPeers {
 			cfg.MaxPeers = lightPeers
 		}
 	}
+	// 非轻节点，也不提供轻节点服务
 	if !(lightClient || lightServer) {
 		lightPeers = 0
 	}
+	// 只提供以太坊服务的节点，即正常交互节点
 	ethPeers := cfg.MaxPeers - lightPeers
-	if lightClient {
+	if lightClient { // 轻节点没有正常以太坊节点
 		ethPeers = 0
 	}
 	log.Info("Maximum peer count", "ETH", ethPeers, "LES", lightPeers, "total", cfg.MaxPeers)
@@ -1141,6 +1150,7 @@ func SetP2PConfig(ctx *cli.Context, cfg *p2p.Config) {
 	if ctx.GlobalIsSet(MaxPendingPeersFlag.Name) {
 		cfg.MaxPendingPeers = ctx.GlobalInt(MaxPendingPeersFlag.Name)
 	}
+	// 如果禁用发现或者是轻节点客户端，则禁用发现
 	if ctx.GlobalIsSet(NoDiscoverFlag.Name) || lightClient {
 		cfg.NoDiscovery = true
 	}
@@ -1148,8 +1158,9 @@ func SetP2PConfig(ctx *cli.Context, cfg *p2p.Config) {
 	// if we're running a light client or server, force enable the v5 peer discovery
 	// unless it is explicitly disabled with --nodiscover note that explicitly specifying
 	// --v5disc overrides --nodiscover, in which case the later only disables v4 discovery
+	// 如果是轻节点服务器或者客户端模式，并且没有禁止peer发现机制，则强制使用V5版本发现机制
 	forceV5Discovery := (lightClient || lightServer) && !ctx.GlobalBool(NoDiscoverFlag.Name)
-	if ctx.GlobalIsSet(DiscoveryV5Flag.Name) {
+	if ctx.GlobalIsSet(DiscoveryV5Flag.Name) { //如果显式指定V5选项，则使用配置
 		cfg.DiscoveryV5 = ctx.GlobalBool(DiscoveryV5Flag.Name)
 	} else if forceV5Discovery {
 		cfg.DiscoveryV5 = true
@@ -1428,7 +1439,7 @@ func SetShhConfig(ctx *cli.Context, stack *node.Node, cfg *whisper.Config) {
 // 根据以太坊设置使配置生效
 func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *eth.Config) {
 	// Avoid conflicting network flags
-	// 网络设置不能冲突
+	// 检查不能冲突的设置项
 	CheckExclusive(ctx, DeveloperFlag, TestnetFlag, RinkebyFlag, GoerliFlag)
 	CheckExclusive(ctx, LightLegacyServFlag, LightServeFlag, SyncModeFlag, "light")
 	CheckExclusive(ctx, DeveloperFlag, ExternalSignerFlag) // Can't use both ephemeral unlocked and external signer
@@ -1575,6 +1586,7 @@ func RegisterEthService(stack *node.Node, cfg *eth.Config) {
 			fullNode, err := eth.New(ctx, cfg)
 			if fullNode != nil && cfg.LightServ > 0 {
 				// 为轻节点提供服务
+				// les server 轻节点服务器
 				ls, _ := les.NewLesServer(fullNode, cfg)
 				fullNode.AddLesServer(ls)
 			}
