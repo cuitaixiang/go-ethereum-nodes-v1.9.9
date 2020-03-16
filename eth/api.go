@@ -40,6 +40,8 @@ import (
 	"github.com/ethereum/go-ethereum/trie"
 )
 
+// 以太坊全节点相关api集合
+
 // PublicEthereumAPI provides an API to access Ethereum full node-related
 // information.
 type PublicEthereumAPI struct {
