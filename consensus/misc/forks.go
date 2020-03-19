@@ -27,6 +27,7 @@ import (
 // VerifyForkHashes verifies that blocks conforming to network hard-forks do have
 // the correct hashes, to avoid clients going off on different chains. This is an
 // optional feature.
+// 验证eip150高度的哈希是否对的上
 func VerifyForkHashes(config *params.ChainConfig, header *types.Header, uncle bool) error {
 	// We don't care about uncles
 	if uncle {

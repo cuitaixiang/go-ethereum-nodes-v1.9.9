@@ -305,6 +305,7 @@ func (s *Ethereum) APIs() []rpc.API {
 		apis = append(apis, s.lesServer.APIs()...)
 	}
 	// Append any APIs exposed explicitly by the consensus engine
+	// 共识引擎的api接口
 	apis = append(apis, s.engine.APIs(s.BlockChain())...)
 
 	// Append any APIs exposed explicitly by the les server

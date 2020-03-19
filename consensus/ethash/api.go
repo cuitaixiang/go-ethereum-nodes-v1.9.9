@@ -27,6 +27,7 @@ import (
 var errEthashStopped = errors.New("ethash stopped")
 
 // API exposes ethash related methods for the RPC interface.
+// API接口
 type API struct {
 	ethash *Ethash
 }
@@ -63,6 +64,7 @@ func (api *API) GetWork() ([4]string, error) {
 // SubmitWork can be used by external miner to submit their POW solution.
 // It returns an indication if the work was accepted.
 // Note either an invalid solution, a stale work a non-existent work will return false.
+// 外部矿工提交工作量
 func (api *API) SubmitWork(nonce types.BlockNonce, hash, digest common.Hash) bool {
 	if api.ethash.remote == nil {
 		return false
@@ -89,6 +91,7 @@ func (api *API) SubmitWork(nonce types.BlockNonce, hash, digest common.Hash) boo
 //
 // It accepts the miner hash rate and an identifier which must be unique
 // between nodes.
+// 外部矿工提交哈希率
 func (api *API) SubmitHashRate(rate hexutil.Uint64, id common.Hash) bool {
 	if api.ethash.remote == nil {
 		return false
@@ -107,6 +110,7 @@ func (api *API) SubmitHashRate(rate hexutil.Uint64, id common.Hash) bool {
 }
 
 // GetHashrate returns the current hashrate for local CPU miner and remote miner.
+// 获取哈希率
 func (api *API) GetHashrate() uint64 {
 	return uint64(api.ethash.Hashrate())
 }

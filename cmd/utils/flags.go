@@ -1325,6 +1325,7 @@ func setEthash(ctx *cli.Context, cfg *eth.Config) {
 
 // 配置挖矿相关
 func setMiner(ctx *cli.Context, cfg *miner.Config) {
+	// 配置分配外部矿工工作包的http路径
 	if ctx.GlobalIsSet(MinerNotifyFlag.Name) {
 		cfg.Notify = strings.Split(ctx.GlobalString(MinerNotifyFlag.Name), ",")
 	}

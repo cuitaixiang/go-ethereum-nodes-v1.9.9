@@ -389,7 +389,7 @@ const (
 	ModeShared
 	ModeTest
 	ModeFake
-	ModeFullFake
+	ModeFullFake // 全虚假模式
 )
 
 // Config are the configuration parameters of the ethash.
@@ -410,19 +410,28 @@ type Config struct {
 type Ethash struct {
 	config Config
 
-	caches   *lru // In memory caches to avoid regenerating too often
+	// 缓存，避免重组太频繁
+	caches *lru // In memory caches to avoid regenerating too often
+	// 数据集，避免重组太频繁
 	datasets *lru // In memory datasets to avoid regenerating too often
 
 	// Mining related fields
-	rand     *rand.Rand    // Properly seeded random source for nonces
-	threads  int           // Number of threads to mine on if mining
-	update   chan struct{} // Notification channel to update mining parameters
+	rand *rand.Rand // Properly seeded random source for nonces
+	// 挖矿线程数量
+	threads int // Number of threads to mine on if mining
+	// 更新挖矿参量信号
+	update chan struct{} // Notification channel to update mining parameters
+	// 平均哈希率
 	hashrate metrics.Meter // Meter tracking the average hashrate
 	remote   *remoteSealer
 
 	// The fields below are hooks for testing
-	shared    *Ethash       // Shared PoW verifier to avoid cache regeneration
-	fakeFail  uint64        // Block number which fails PoW check even in fake mode
+	// 以下域为测试挂钩
+	// 嵌套一个Ethash
+	shared *Ethash // Shared PoW verifier to avoid cache regeneration
+	// 虚假模式在此高度验证失败
+	fakeFail uint64 // Block number which fails PoW check even in fake mode
+	// 虚假模式延迟时间
 	fakeDelay time.Duration // Time delay to sleep for before returning from verify
 
 	lock      sync.Mutex // Ensures thread safety for the in-memory caches and mining fields
@@ -432,6 +441,7 @@ type Ethash struct {
 // New creates a full sized ethash PoW scheme and starts a background thread for
 // remote mining, also optionally notifying a batch of remote services of new work
 // packages.
+// 配置ethash PoW机制，同时启动一个背景线程用来服务远端挖矿和响应远端挖矿请求
 func New(config Config, notify []string, noverify bool) *Ethash {
 	if config.Log == nil {
 		config.Log = log.Root()
@@ -453,6 +463,7 @@ func New(config Config, notify []string, noverify bool) *Ethash {
 		update:   make(chan struct{}),
 		hashrate: metrics.NewMeterForced(),
 	}
+	// 启动远端sealer
 	ethash.remote = startRemoteSealer(ethash, notify, noverify)
 	return ethash
 }
@@ -567,6 +578,7 @@ func (ethash *Ethash) cache(block uint64) *cache {
 // generates on a background thread.
 func (ethash *Ethash) dataset(block uint64, async bool) *dataset {
 	// Retrieve the requested ethash dataset
+	// 每30000个区块为一个epoch
 	epoch := block / epochLength
 	currentI, futureI := ethash.datasets.get(epoch)
 	current := currentI.(*dataset)
