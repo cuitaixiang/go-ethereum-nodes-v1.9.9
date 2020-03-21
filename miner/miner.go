@@ -36,6 +36,7 @@ import (
 )
 
 // Backend wraps all methods required for mining.
+// 后端封装了挖矿需要的方法
 type Backend interface {
 	BlockChain() *core.BlockChain
 	TxPool() *core.TxPool
@@ -64,7 +65,9 @@ type Miner struct {
 	engine   consensus.Engine
 	exitCh   chan struct{}
 
-	canStart    int32 // can start indicates whether we can start the mining operation
+	// 是否能开始
+	canStart int32 // can start indicates whether we can start the mining operation
+	// 是否应该开始
 	shouldStart int32 // should start indicates whether we should start after sync
 }
 
@@ -98,6 +101,8 @@ func (miner *Miner) update() {
 			}
 			switch ev.Data.(type) {
 			case downloader.StartEvent:
+				// 下载开始要停止挖矿
+				// 置位成不能开始
 				atomic.StoreInt32(&miner.canStart, 0)
 				if miner.Mining() {
 					miner.Stop()
@@ -105,9 +110,13 @@ func (miner *Miner) update() {
 					log.Info("Mining aborted due to sync")
 				}
 			case downloader.DoneEvent, downloader.FailedEvent:
+				// 下载完成或者失败，启动挖矿
+				// 判断是否应该开始
 				shouldStart := atomic.LoadInt32(&miner.shouldStart) == 1
 
+				// 能开始
 				atomic.StoreInt32(&miner.canStart, 1)
+				// 恢复到不应该开始
 				atomic.StoreInt32(&miner.shouldStart, 0)
 				if shouldStart {
 					miner.Start(miner.coinbase)
@@ -121,10 +130,12 @@ func (miner *Miner) update() {
 	}
 }
 
+// 开始挖矿
 func (miner *Miner) Start(coinbase common.Address) {
 	atomic.StoreInt32(&miner.shouldStart, 1)
 	miner.SetEtherbase(coinbase)
 
+	// 网络同步，不能开始
 	if atomic.LoadInt32(&miner.canStart) == 0 {
 		log.Info("Network syncing, will start miner afterwards")
 		return
