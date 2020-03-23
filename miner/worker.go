@@ -227,6 +227,7 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 }
 
 // setEtherbase sets the etherbase used to initialize the block coinbase field.
+// 设置coinbase
 func (w *worker) setEtherbase(addr common.Address) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -234,6 +235,7 @@ func (w *worker) setEtherbase(addr common.Address) {
 }
 
 // setExtra sets the content used to initialize the block extra field.
+// 设置extra字段
 func (w *worker) setExtra(extra []byte) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
