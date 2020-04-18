@@ -91,15 +91,20 @@ func Sender(signer Signer, tx *Transaction) (common.Address, error) {
 
 // Signer encapsulates transaction signature handling. Note that this interface is not a
 // stable API and may change at any time to accommodate new protocol rules.
+// 交易签名接口
 type Signer interface {
 	// Sender returns the sender address of the transaction.
+	// 提取Sender
 	Sender(tx *Transaction) (common.Address, error)
 	// SignatureValues returns the raw R, S, V values corresponding to the
 	// given signature.
+	// 返回原始签名的R/S/V
 	SignatureValues(tx *Transaction, sig []byte) (r, s, v *big.Int, err error)
 	// Hash returns the hash to be signed.
+	// 返回交易哈希
 	Hash(tx *Transaction) common.Hash
 	// Equal returns true if the given signer is the same as the receiver.
+	// 是否和给定的签名器一样
 	Equal(Signer) bool
 }
 
