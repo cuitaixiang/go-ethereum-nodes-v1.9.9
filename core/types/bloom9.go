@@ -95,15 +95,18 @@ func (b *Bloom) UnmarshalText(input []byte) error {
 func CreateBloom(receipts Receipts) Bloom {
 	bin := new(big.Int)
 	for _, receipt := range receipts {
+		// 子bloom进行“或”运算
 		bin.Or(bin, LogsBloom(receipt.Logs))
 	}
 
 	return BytesToBloom(bin.Bytes())
 }
 
+// 生成日志bloom
 func LogsBloom(logs []*Log) *big.Int {
 	bin := new(big.Int)
 	for _, log := range logs {
+		// 使用日志中的address和topics，叠加生成bloom
 		bin.Or(bin, bloom9(log.Address.Bytes()))
 		for _, b := range log.Topics {
 			bin.Or(bin, bloom9(b[:]))
